@@ -61,6 +61,8 @@
 
 ;;; Todo:
 
+;; * Kill-ring support: `kill-region', `yank'
+;; * Hook annotation type: attaches to a hook locally and executes.
 ;; * File symlink support for later reference.
 ;; * Add option to do strict checking = :prev support.
 ;; * Sync annotations with indirect buffers.
@@ -84,9 +86,13 @@
   :group 'annot)
 
 (defcustom annot-md5-max-chars 300000
-  "Maximum number of characters to sample for getting the md5 \
-checksum from the top of the buffer.
-Keep in mind though that there is a speed-reliability tradeoff here."
+  "Max number of characters to sample for getting the md5 checksum.
+Do not modify this variable when you have annotations you do not
+want to lose. Depending on what you specify here, some md5's of
+annotated files might also change \(for long files especially),
+resulting in loss of annotations.  Sampling is from the top of
+the buffer. Keep in mind that there is a speed-reliability
+tradeoff here."
   :type '(choice (const   :tag "No limit" nil)
                  (integer :tag "Number of chars"))
   :group 'annot)
@@ -155,7 +161,7 @@ separately.")
     (annot-add)))
 
 
-(defun annot-remove (&optional ov)
+(defun annot-remove (&optional ov silent)
   "Remove a nearby annotation on the current line."
   (interactive)
   (let ((ov (or ov (annot-get-annotation-at-point))))
@@ -163,7 +169,8 @@ separately.")
       (setq annot-buffer-overlays (delq ov annot-buffer-overlays))
       (delete-overlay ov)
       (annot-save-annotations)
-      (when (called-interactively-p 'any)
+      ;; (when (called-interactively-p 'any)
+      (unless silent
         (message "Annotation removed.")))))
 
 
@@ -368,17 +375,19 @@ Only annotation files use this function internally."
 
 (defun annot-load-annotations ()
   "Load the annotation file corresponding to the current buffer.
-If current `annot-buffer-overlays' looks newer in a rare occasion,
-it asks whether to load the file or not."
+If current `annot-buffer-overlays' looks newer \(which shouldn't
+happen as long as you keep using annot), it asks whether to load
+the file or not."
   (interactive)
-  (let ((filename (annot-get-annot-filename (annot-md5 (current-buffer)))))
+  (let ((filename (annot-get-annot-filename (annot-md5 (current-buffer))))
+        (file-loaded-p nil))
 	(cond
 	 ((file-readable-p filename)
-      (load-file filename))
-	 (t
-      (when (called-interactively-p 'any)
-        (message "Either the file \"%s\" does not exist or is not readable."
-                 filename))))))
+      (load-file filename)
+      (setq file-loaded-p t))
+	 ((file-exists-p filename)
+      (message "File \"%s\" is not readable." filename)))
+    file-loaded-p))
 
 
 (defun annot-delete-annotations-region (start end)
@@ -387,7 +396,7 @@ it asks whether to load the file or not."
   (dolist (ov annot-buffer-overlays)
     (let ((p (overlay-start ov)))
       (if (and (>= end p) (>= p start))
-          (annot-remove ov)))))
+          (annot-remove ov t)))))
 
 
 ;;; Keybindings.
