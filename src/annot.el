@@ -163,7 +163,7 @@ separately.")
       (setq annot-buffer-overlays (delq ov annot-buffer-overlays))
       (delete-overlay ov)
       (annot-save-annotations)
-      (when (called-interactively-p)
+      (when (called-interactively-p 'any)
         (message "Annotation removed.")))))
 
 
@@ -361,7 +361,7 @@ Only annotation files use this function internally."
   (let* ((pos (plist-get ov-plist :pos))
          (ov  (make-overlay pos pos nil t nil)))
     (dotimes (i (length ov-plist))
-      (when (evenp i)
+      (when (eq (logand i 1) 0)
         (overlay-put ov (nth i ov-plist) (nth (1+ i) ov-plist))))
     ov))
 
@@ -376,7 +376,7 @@ it asks whether to load the file or not."
 	 ((file-readable-p filename)
       (load-file filename))
 	 (t
-      (when (called-interactively-p)
+      (when (called-interactively-p 'any)
         (message "Either the file \"%s\" does not exist or is not readable."
                  filename))))))
 
@@ -420,8 +420,3 @@ it asks whether to load the file or not."
 
 (provide 'annot)
 ;;; annot.el ends here
-
-;; Local Variables:
-;; no-byte-compile: t
-;; coding: utf-8
-;; End:
