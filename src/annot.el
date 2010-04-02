@@ -97,6 +97,12 @@ tradeoff here."
                  (integer :tag "Number of chars"))
   :group 'annot)
 
+(defcustom annot-load-disabled-modes '(hexl-mode)
+  "A list of major-modes for which file-buffer annot load should not take place."
+  :type '(repeat (symbol :tag "Major mode"))
+  :group 'annot)
+
+
 (defface annot-text-face
   '((((class color) (background light)) (:foreground "red" :background "yellow"))
     (((class color) (background dark)) (:foreground "red" :background "white")))
@@ -172,6 +178,24 @@ separately.")
       ;; (when (called-interactively-p 'any)
       (unless silent
         (message "Annotation removed.")))))
+
+
+(defun annot-load-annotations ()
+  "Load the annotation file corresponding to the current buffer.
+If current `annot-buffer-overlays' looks newer \(which shouldn't
+happen as long as you keep using annot), it asks whether to load
+the file or not."
+  (interactive)
+  (unless (member major-mode annot-load-disabled-modes)
+    (let ((filename (annot-get-annot-filename (annot-md5 (current-buffer))))
+          (file-loaded-p nil))
+      (cond
+       ((file-readable-p filename)
+        (load-file filename)
+        (setq file-loaded-p t))
+       ((file-exists-p filename)
+        (message "File \"%s\" is not readable." filename)))
+    file-loaded-p)))
 
 
 ;;; Internal functions.
@@ -373,29 +397,12 @@ Only annotation files use this function internally."
     ov))
 
 
-(defun annot-load-annotations ()
-  "Load the annotation file corresponding to the current buffer.
-If current `annot-buffer-overlays' looks newer \(which shouldn't
-happen as long as you keep using annot), it asks whether to load
-the file or not."
-  (interactive)
-  (let ((filename (annot-get-annot-filename (annot-md5 (current-buffer))))
-        (file-loaded-p nil))
-	(cond
-	 ((file-readable-p filename)
-      (load-file filename)
-      (setq file-loaded-p t))
-	 ((file-exists-p filename)
-      (message "File \"%s\" is not readable." filename)))
-    file-loaded-p))
-
-
 (defun annot-delete-annotations-region (start end)
   "Delete all annotations in region."
   (interactive "r")
   (dolist (ov annot-buffer-overlays)
     (let ((p (overlay-start ov)))
-      (if (and (>= end p) (>= p start))
+      (if (or (null p) (and (>= end p) (>= p start)))
           (annot-remove ov t)))))
 
 
