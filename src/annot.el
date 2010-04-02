@@ -58,13 +58,11 @@
 ;; prevents, among other thing, indirect buffers from messing up with its
 ;; original.
 
-
 ;;; Todo:
 
 ;; * Kill-ring support: `kill-region', `yank'
 ;; * Imagee annotatioin feature.
 ;; * Hook annotation type: attaches to a hook locally and executes.
-;; * Add option to do strict checking = :next support.
 ;; * Sticky recovery using symlink when md5 does not match.
 ;; * Primitive undo management.
 
@@ -102,7 +100,6 @@ tradeoff here."
   :type '(repeat (symbol :tag "Major mode"))
   :group 'annot)
 
-
 (defcustom annot-enable-symlinking nil
   "Whether to enable symlink support.
 Depending on your editing style, this makes annot more robust in
@@ -110,6 +107,12 @@ reproducing annotations."
   :type 'boolean
   :group 'annot)
 
+(defcustom annot-enable-strict-integrity-checking nil
+  "If enabled, check the forward string checking as well.
+By default, annot only checks backward subsequence relative to
+annotation's position."
+  :type 'boolean
+  :group 'annot)
 
 (defface annot-text-face
   '((((class color) (background light)) (:foreground "red" :background "yellow"))
@@ -186,7 +189,6 @@ separately.")
       (setq annot-buffer-overlays (delq ov annot-buffer-overlays))
       (delete-overlay ov)
       (annot-save-annotations)
-      ;; (when (called-interactively-p 'any)
       (unless silent
         (message "Annotation removed.")))))
 
@@ -419,14 +421,18 @@ Only annotation files use this function internally."
       ;; Mmmkay, let's reproduce annotations.
       (dolist (ov-plist annotations)
         (let ((pos (plist-get ov-plist :pos))
-              ;; (next-string (plist-get ov-plist :next))
               (prev-string (plist-get ov-plist :prev)))
-          (when (string= prev-string
-                         (buffer-substring-no-properties
-                          (max (point-min) (- pos (length prev-string))) pos))
-              ;; (string= next-string
-              ;;          (buffer-substring-no-properties
-              ;;           pos (min (point-max) (+ pos (length next-string)))))
+          (when (and
+                 (string= prev-string
+                          (buffer-substring-no-properties
+                           (max (point-min) (- pos (length prev-string))) pos))
+                 (or (null annot-enable-strict-integrity-checking)
+                     (and annot-enable-strict-integrity-checking
+                          (let ((next-string (plist-get ov-plist :next)))
+                            (string= next-string
+                                     (buffer-substring-no-properties
+                                      pos (min (point-max)
+                                               (+ pos (length next-string)))))))))
             (push (annot-recover-overlay ov-plist) annot-buffer-overlays))))
       (setq annot-buffer-plist
             `(:md5            ,(plist-get annotations-info :md5)
