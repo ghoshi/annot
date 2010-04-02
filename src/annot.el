@@ -62,10 +62,10 @@
 ;;; Todo:
 
 ;; * Kill-ring support: `kill-region', `yank'
+;; * Imagee annotatioin feature.
 ;; * Hook annotation type: attaches to a hook locally and executes.
-;; * File symlink support for later reference.
-;; * Add option to do strict checking = :prev support.
-;; * Sync annotations with indirect buffers.
+;; * Add option to do strict checking = :next support.
+;; * Sticky recovery using symlink when md5 does not match.
 ;; * Primitive undo management.
 
 ;;; Code:
@@ -103,6 +103,14 @@ tradeoff here."
   :group 'annot)
 
 
+(defcustom annot-enable-symlinking nil
+  "Whether to enable symlink support.
+Depending on your editing style, this makes annot more robust in
+reproducing annotations."
+  :type 'boolean
+  :group 'annot)
+
+
 (defface annot-text-face
   '((((class color) (background light)) (:foreground "red" :background "yellow"))
     (((class color) (background dark)) (:foreground "red" :background "white")))
@@ -114,8 +122,11 @@ tradeoff here."
   "Number of characters to be stored before and after \
 annotation's position in a file buffer.")
 
-(defconst annot-contents-dirname "contents" 
+(defconst annot-contents-dirname "contents"
   "Name of the annotation directory.")
+
+(defconst annot-symlinks-dirname "symlinks"
+  "Name of the annotation symlink directory.")
 
 (defvar annot-buffer-overlays nil
   "List of overlays in the buffer.")
@@ -210,6 +221,10 @@ the file or not."
   (format "%s/%s" annot-directory annot-contents-dirname))
 
 
+(defsubst annot-symlinks-directory ()
+  (format "%s/%s" annot-directory annot-symlinks-dirname))
+
+
 (defsubst annot-get-annot-filename (md5)
   "Return the full path of the annotation filename."
   (expand-file-name (format "%s/%s"
@@ -294,19 +309,21 @@ previous filename, return delete the previous file."
    ;; associated annot file.
    ((null annot-buffer-overlays)
     (let ((md5 (plist-get annot-buffer-plist :md5))
-          old-annot-filename)
+          (filename (plist-get annot-buffer-plist :filename))
+          old-annot-filename symlink)
       (when md5
         (setq old-annot-filename (annot-get-annot-filename md5))
         (if (file-readable-p old-annot-filename)
-            (delete-file old-annot-filename)))))
+            (delete-file old-annot-filename)))
+      (when filename
+        (setq symlink (annot-get-symlink filename))
+        (if (file-symlink-p symlink)
+            (delete-file symlink)))))
    
    (t
-    ;; Create annot directory if it does not exist.
-    (unless (file-exists-p (annot-contents-directory))
-      (make-directory (annot-contents-directory) t))
-    
     (let* ((buffer (current-buffer))
            (prev-md5 (plist-get annot-buffer-plist :md5))
+           (prev-filename (plist-get annot-buffer-plist :filename))
            (md5 (annot-md5 buffer))
            (filename (buffer-file-name))
            (annot-filename (annot-get-annot-filename md5))
@@ -323,15 +340,21 @@ previous filename, return delete the previous file."
                        (buffer-substring-no-properties
                         p (min (point-max) (+ p annot-subsequence-length))))))
       
+      ;; Delete previous symlink, if any, before creating one.
+      (when (and prev-md5 prev-filename (not (string= prev-md5 md5)))
+        (if (file-symlink-p (annot-get-symlink prev-filename))
+            (delete-file (annot-get-symlink prev-filename))))
+      
       ;; Get the S-expression and save the annotations if it is a file-buffer.
       ;; It is possible to load annotations for non-file-buffer, but it is
       ;; not supported yet just to play safe.
       (when filename
         (setq s (annot-format-overlays md5 filename bufname annot-filename modtime))
         (condition-case error
-            (with-temp-file annot-filename
-              (erase-buffer)
-              (insert s))
+            (progn
+              (annot-save-content s annot-filename)
+              (when annot-enable-symlinking
+                (annot-save-symlink md5 filename)))
           (error
            (warn "annot-save-annotations: %s" (error-message-string error)))))
       
@@ -341,13 +364,39 @@ previous filename, return delete the previous file."
               (plist-put annot-buffer-plist
                          (intern (format ":%S" e)) (symbol-value e))))
       
-      ;; If md5 doesn't matche the previous one,
-      ;; delete the old annotation file.
+      ;; If md5 doesn't matche the previous one, delete the old annotation file.
       (when (and prev-md5 (not (string= prev-md5 md5)))
         (let ((old-annot-filename (annot-get-annot-filename prev-md5)))
           (if (file-readable-p old-annot-filename)
               (delete-file old-annot-filename))))
       annot-filename))))
+
+
+(defun annot-save-content (content annot-filename)
+  "Write `content' into a `annot-filename'.
+Create the annot content directory if it does not exist."
+  (unless (file-exists-p (annot-contents-directory))
+    (make-directory (annot-contents-directory) t))
+  (with-temp-file annot-filename
+    (erase-buffer)
+    (insert content)))
+
+
+(defun annot-save-symlink (md5 filename)
+  "Make a symbolic link pointing to an annot-filename."
+  (let ((symlinks-dir (annot-symlinks-directory)))
+    (unless (file-exists-p symlinks-dir)
+      (make-directory symlinks-dir))
+    (make-symbolic-link
+     (format "../%s/%s" annot-contents-dirname md5)
+     (annot-get-symlink filename)
+     'ok-if-already-exists)))
+
+
+(defun annot-get-symlink (filename)
+  "Return symlink path."
+  (let ((backup-directory-alist `(("." . ,(annot-symlinks-directory)))))
+    (make-backup-file-name (expand-file-name filename))))
 
 
 (defun annot-recover-annotations (annotations-info)
