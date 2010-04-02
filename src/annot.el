@@ -60,10 +60,10 @@
 
 ;;; Todo:
 
-;; * Kill-ring support: `kill-region', `yank'
-;; * Imagee annotatioin feature.
-;; * Hook annotation type: attaches to a hook locally and executes.
+;; * Image annotatioin feature.
 ;; * Sticky recovery using symlink when md5 does not match.
+;; * Kill-ring support: `kill-region', `yank'
+;; * Hook annotation type: attaches to a hook locally and executes stuff.
 ;; * Primitive undo management.
 
 ;;; Code:
@@ -85,12 +85,13 @@
 
 (defcustom annot-md5-max-chars 300000
   "Max number of characters to sample for getting the md5 checksum.
-Do not modify this variable when you have annotations you do not
-want to lose. Depending on what you specify here, some md5's of
+DO NOT MODIFY THIS VARIABLE WHEN YOU HAVE ANNOTATIONS YOU DO NOT
+WANT TO LOSE. Depending on what you specify here, some md5's of
 annotated files might also change \(for long files especially),
 resulting in loss of annotations.  Sampling is from the top of
 the buffer. Keep in mind that there is a speed-reliability
 tradeoff here."
+  :risky t
   :type '(choice (const   :tag "No limit" nil)
                  (integer :tag "Number of chars"))
   :group 'annot)
@@ -108,7 +109,7 @@ reproducing annotations."
   :group 'annot)
 
 (defcustom annot-enable-strict-integrity-checking nil
-  "If enabled, check the forward string checking as well.
+  "If enabled, check the forward string as well.
 By default, annot only checks backward subsequence relative to
 annotation's position."
   :type 'boolean
@@ -148,11 +149,12 @@ separately.")
 (defun annot-add ()
   "Add an annotation on the current point."
   (interactive)
-  (let ((text (read-string "Annotation: ")) ov)
+  (let ((text (read-string "Annotation: ")))
     (unless (zerop (length (annot-trim text)))
-      (setq ov (annot-create-overlay (point) text))
-      (push ov annot-buffer-overlays)
-      (annot-save-annotations))))
+      (push (annot-create-overlay (point) text) annot-buffer-overlays)
+      (annot-save-annotations)
+      ;; When on indirect buffer, sync with its base buffer as well.
+      (annot-base-buffer-add text))))
 
 
 (defun annot-edit ()
@@ -170,15 +172,8 @@ separately.")
             (annot-remove ov)
           (overlay-put ov 'before-string
                        (funcall annot-text-decoration-function text))
-          (annot-save-annotations))))))
-
-
-(defun annot-edit/add ()
-  "Either edit the annotation at point, if there is, or else add a new one."
-  (interactive)
-  (if (annot-get-annotation-at-point)
-      (annot-edit)
-    (annot-add)))
+          (annot-save-annotations)
+          (annot-base-buffer-edit text))))))
 
 
 (defun annot-remove (&optional ov silent)
@@ -189,8 +184,17 @@ separately.")
       (setq annot-buffer-overlays (delq ov annot-buffer-overlays))
       (delete-overlay ov)
       (annot-save-annotations)
+      (annot-base-buffer-remove)
       (unless silent
         (message "Annotation removed.")))))
+
+
+(defun annot-edit/add ()
+  "Either edit the annotation at point, if there is, or else add a new one."
+  (interactive)
+  (if (annot-get-annotation-at-point)
+      (annot-edit)
+    (annot-add)))
 
 
 (defun annot-load-annotations ()
@@ -209,6 +213,49 @@ the file or not."
        ((file-exists-p filename)
         (message "File \"%s\" is not readable." filename)))
     file-loaded-p)))
+
+
+;;; Functions for synching up with an indirect buffer's annotations (but not the
+;;; oppositve - i.e. upward direction only).  This supports no more than single
+;;; indirect buffer: multiple indirect buffers pointing to the same base buffer
+;;; may not be fully reflected.
+
+
+
+(defun annot-base-buffer-add (text)
+  (let ((base-buffer (buffer-base-buffer)))
+    (when base-buffer
+      (let ((p (point)))
+        (with-current-buffer base-buffer
+          (save-excursion
+            (goto-char p)
+            (push (annot-create-overlay (point) text) annot-buffer-overlays)
+            (annot-save-annotations)))))))
+
+
+(defun annot-base-buffer-remove ()
+  (let ((base-buffer (buffer-base-buffer)))
+    (when base-buffer
+      (let ((p (point)) ov)
+        (with-current-buffer base-buffer
+          (save-excursion
+            (goto-char p)
+            (when (setq ov (annot-get-annotation-at-point))
+              (setq annot-buffer-overlays (delq ov annot-buffer-overlays))
+              (delete-overlay ov)
+              (annot-save-annotations))))))))
+
+
+(defun annot-base-buffer-edit (text)
+  (let ((base-buffer (buffer-base-buffer)))
+    (when (and base-buffer (not (zerop (length (annot-trim text)))))
+      (let ((p (point)))
+        (with-current-buffer base-buffer
+          (save-excursion
+            (goto-char p)
+            (overlay-put (annot-get-annotation-at-point) 'before-string
+                         (funcall annot-text-decoration-function text))
+            (annot-save-annotations)))))))
 
 
 ;;; Internal functions.
@@ -242,6 +289,12 @@ If `annot-md5-max-chars' is nil, no limit is imposed."
              nil
            (min annot-md5-max-chars (point-max)))
          nil t)))
+
+
+(defun annot-file-exists-p ()
+  "Returns an annotation filename if current buffer accompanies with it."
+  (let ((annot-filename (annot-get-annot-filename (annot-md5 (current-buffer)))))
+    (and (file-exists-p annot-filename) annot-filename)))
 
 
 (defun annot-decorate-text (text)
