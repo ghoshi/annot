@@ -60,10 +60,10 @@
 
 ;;; Todo:
 
-;; * Sticky recovery using symlink when md5 does not match.
 ;; * Kill-ring support: `kill-region', `yank'
 ;; * Hook annotation type: attaches to a hook locally and executes stuff.
 ;; * Primitive undo management.
+;; * Sticky recovery when :pos does not match.
 
 ;;; Code:
 
@@ -225,15 +225,13 @@ happen as long as you keep using annot), it asks whether to load
 the file or not."
   (interactive)
   (unless (member major-mode annot-load-disabled-modes)
-    (let ((filename (annot-get-annot-filename (annot-md5 (current-buffer))))
-          (file-loaded-p nil))
-      (cond
-       ((file-readable-p filename)
-        (load-file filename)
-        (setq file-loaded-p t))
-       ((file-exists-p filename)
-        (message "File \"%s\" is not readable." filename)))
-    file-loaded-p)))
+    (let (filename)
+      (if (or (file-readable-p 
+               (setq filename (annot-get-annot-filename (annot-md5 (current-buffer)))))
+              ;; If md5 fails, try symlink.
+              (and (setq filename (annot-get-symlink (buffer-file-name)))
+                   (file-readable-p filename)))
+          (load-file filename)))))
 
 
 ;;; Functions for synching up with an indirect buffer's annotations (but not the
@@ -471,8 +469,9 @@ Create the annot content directory if it does not exist."
 
 (defun annot-get-symlink (filename)
   "Return symlink path."
+  (when filename
   (let ((backup-directory-alist `(("." . ,(annot-symlinks-directory)))))
-    (make-backup-file-name (expand-file-name filename))))
+    (make-backup-file-name (expand-file-name filename)))))
 
 
 (defun annot-recover-annotations (annotations-info)
