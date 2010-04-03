@@ -60,7 +60,6 @@
 
 ;;; Todo:
 
-;; * Image annotatioin feature.
 ;; * Sticky recovery using symlink when md5 does not match.
 ;; * Kill-ring support: `kill-region', `yank'
 ;; * Hook annotation type: attaches to a hook locally and executes stuff.
@@ -115,6 +114,11 @@ annotation's position."
   :type 'boolean
   :group 'annot)
 
+(defcustom annot-image-directory "~/" 
+  "Default image directory for `annot-add-image'."
+  :type 'string
+  :group 'annot)
+
 (defface annot-text-face
   '((((class color) (background light)) (:foreground "red" :background "yellow"))
     (((class color) (background dark)) (:foreground "red" :background "white")))
@@ -146,15 +150,32 @@ separately.")
 
 ;;; User commands.
 
-(defun annot-add ()
+(defun annot-add (&optional text)
   "Add an annotation on the current point."
   (interactive)
-  (let ((text (read-string "Annotation: ")))
+  (let ((text (or text (read-string "Annotation: "))))
     (unless (zerop (length (annot-trim text)))
       (push (annot-create-overlay (point) text) annot-buffer-overlays)
       (annot-save-annotations)
       ;; When on indirect buffer, sync with its base buffer as well.
       (annot-base-buffer-add text))))
+
+
+(defun annot-add-image ()
+  "Insert an image on the current point."
+  (interactive)
+  (if (and window-system (display-images-p))
+      (let ((image-filename
+             (car
+              (let ((default-directory
+                      (or (and (file-directory-p annot-image-directory)
+                               annot-image-directory)
+                          default-directory)))
+                (find-file-read-args "Image: " t)))))
+        (annot-add
+         (propertize image-filename 'display
+                     (create-image (expand-file-name image-filename)))))
+    (message "You are not on a window-system that can display images.")))
 
 
 (defun annot-edit ()
