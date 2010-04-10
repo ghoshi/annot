@@ -64,6 +64,7 @@
 ;; * Hook annotation type: attaches to a hook locally and executes stuff.
 ;; * Primitive undo management.
 ;; * Sticky recovery when :pos does not match.
+;; * "Import annotations" feature.
 
 ;;; Code:
 
@@ -188,7 +189,7 @@ separately.")
       (let ((text (read-string "Annotation: "
                                (annot-trim
                                 (substring-no-properties
-                                 (overlay-get ov 'before-string))))))
+                                 (or (overlay-get ov 'before-string) ""))))))
         (if (zerop (length (annot-trim text)))
             (annot-remove ov)
           (overlay-put ov 'before-string
@@ -539,6 +540,7 @@ Only annotation files use this function internally."
 (define-key ctl-x-map "a"    'annot-edit/add)
 (define-key ctl-x-map "\C-a" 'annot-edit/add)
 (define-key ctl-x-map "r"    'annot-remove)
+(define-key ctl-x-map "w"    'annot-add-image)
 
 
 ;;; Hooks and Advices.
