@@ -45,14 +45,16 @@
 ;; * [C-x a]    -  add new annotation or edit existing annotation.
 ;;                 You can also use [C-x C-a]. (annot-edit/add)
 ;; * [C-x r]    -  remove annotation at point. (annot-remove)
+;; * [C-x w]    -  insert an image at point. (annot-add-image)
 ;;
 ;; User Commands:
 ;; 
-;; * `annot-edit/add' - either edit the annotation at point, if there is,
-;;                      or else add a new one.
-;; * `annot-remove'   - remove the annotation at point.
-;; * `annot-add'      - add an annotation at point.
-;; * `annot-edit'     - edit the annotation at point.
+;; * `annot-edit/add'  - either edit the annotation at point, if there is,
+;;                       or else add a new one.
+;; * `annot-remove'    - remove the annotation at point.
+;; * `annot-add'       - add an annotation at point.
+;; * `annot-edit'      - edit the annotation at point.
+;; * `annot-add-image' - insert an image at point.
 ;;
 ;; * it saves annotatioins only if current buffer is a file-buffer.  This
 ;; prevents, among other thing, indirect buffers from messing up with its
@@ -240,8 +242,6 @@ the file or not."
 ;;; indirect buffer: multiple indirect buffers pointing to the same base buffer
 ;;; may not be fully reflected.
 
-
-
 (defun annot-base-buffer-add (text)
   (let ((base-buffer (buffer-base-buffer)))
     (when base-buffer
@@ -321,11 +321,16 @@ If `annot-md5-max-chars' is nil, no limit is imposed."
   "Decorate an annotation text."
   (let* ((n (length text))
          (last-newline-p (string= (substring text (max 0 (1- n)) n) "\n"))
-         (text (annot-trim text)))
-    (format "%s%s"
-            (if (bolp) "" " ")
-            (propertize (format " %s%s" text (if last-newline-p "\n" " "))
-                        'face 'annot-text-face))))
+         (text (annot-trim text))
+         (text-is-image-p (get-text-property 0 'display text))
+         (annot-text (format "%s%s%s"
+                             (if text-is-image-p "" " ")
+                             text
+                             (or (and last-newline-p "\n")
+                                 (and text-is-image-p "")
+                                 " "))))
+    (format "%s%s" (if (bolp) "" " ")
+            (propertize annot-text 'face 'annot-text-face))))
 
 
 (defun annot-get-annotation-at-point ()
