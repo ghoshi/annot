@@ -62,6 +62,7 @@
 
 ;;; Todo:
 
+;; * Support text highlighting.
 ;; * Kill-ring support: `kill-region', `yank'
 ;; * Hook annotation type: attaches to a hook locally and executes stuff.
 ;; * Primitive undo management.
@@ -164,20 +165,19 @@ separately.")
       (annot-base-buffer-add text))))
 
 
-(defun annot-add-image ()
+(defun annot-add-image (&optional image-filename)
   "Insert an image on the current point."
   (interactive)
   (if (and window-system (display-images-p))
       (let ((image-filename
-             (car
-              (let ((default-directory
-                      (or (and (file-directory-p annot-image-directory)
-                               annot-image-directory)
-                          default-directory)))
-                (find-file-read-args "Image: " t)))))
-        (annot-add
-         (propertize image-filename 'display
-                     (create-image (expand-file-name image-filename)))))
+             (or image-filename
+                 (car (let ((default-directory
+                              (or (and (file-directory-p annot-image-directory)
+                                       annot-image-directory)
+                                  default-directory)))
+                        (find-file-read-args "Image: " t))))))
+        (annot-add (propertize image-filename 'display
+                               (create-image (expand-file-name image-filename)))))
     (message "You are not on a window-system that can display images.")))
 
 
