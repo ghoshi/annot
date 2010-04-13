@@ -55,19 +55,16 @@
 ;; * `annot-add'       - add an annotation at point.
 ;; * `annot-edit'      - edit the annotation at point.
 ;; * `annot-add-image' - insert an image at point.
-;;
-;; * it saves annotatioins only if current buffer is a file-buffer.  This
-;; prevents, among other thing, indirect buffers from messing up with its
-;; original.
 
 ;;; Todo:
 
-;; * Support text highlighting.
-;; * Kill-ring support: `kill-region', `yank'
-;; * Hook annotation type: attaches to a hook locally and executes stuff.
-;; * Primitive undo management.
+;; * Newline (\n) highlighting is to be avoided, since it only looks ugly, flashy, and unintuitive.
+;; (DONE: Support text highlighting - http://code.google.com/p/annot/wiki/TextHighlighting)
 ;; * Sticky recovery when :pos does not match.
 ;; * "Import annotations" feature.
+;; * Hook annotation type: attaches to a hook locally and executes stuff.
+;; * Kill-ring support: `kill-region', `yank'
+;; * Primitive undo management.
 
 ;;; Code:
 
@@ -129,6 +126,11 @@ annotation's position."
   "Face for annotation text."
   :group 'annot)
 
+(defface annot-highlighter-face
+  '((((class color) (background light)) (:background "yellow"))
+    (((class color) (background dark)) (:background "red")))
+  "Face for highlighted text."
+  :group 'annot)
 
 (defconst annot-subsequence-length 24
   "Number of characters to be stored before and after \
@@ -154,15 +156,19 @@ separately.")
 
 ;;; User commands.
 
-(defun annot-add (&optional text)
-  "Add an annotation on the current point."
+(defun annot-add (&optional text/image)
+  "Add an annotation on the current point.
+If a marked region is present, highlight it."
   (interactive)
-  (let ((text (or text (read-string "Annotation: "))))
-    (unless (zerop (length (annot-trim text)))
-      (push (annot-create-overlay (point) text) annot-buffer-overlays)
+  (let* ((text/image/region (if (region-active-p)
+                                `(,(region-beginning) . ,(region-end))
+                              text/image))
+         (ov (annot-create-new text/image/region)))
+    (when ov
+      (push ov annot-buffer-overlays)
       (annot-save-annotations)
       ;; When on indirect buffer, sync with its base buffer as well.
-      (annot-base-buffer-add text))))
+      (annot-base-buffer-add text/image/region))))
 
 
 (defun annot-add-image (&optional image-filename)
@@ -181,13 +187,17 @@ separately.")
     (message "You are not on a window-system that can display images.")))
 
 
-(defun annot-edit ()
+(defun annot-edit (&optional ov)
   "Edit a nearby annotation on the current line."
   (interactive)
   (let ((p (point))
-        (ov (annot-get-annotation-at-point)))
-    (if (null ov)
-        (message "No annotation to edit at point.")
+        (ov (or ov (annot-get-annotation-at-point))))
+    (cond
+     ((null ov)
+      (message "No annotation to edit at point."))
+     ((region-active-p)
+      (message "Highlight cannot be edited."))
+     (t 
       (let ((text (read-string "Annotation: "
                                (annot-trim
                                 (substring-no-properties
@@ -197,7 +207,7 @@ separately.")
           (overlay-put ov 'before-string
                        (funcall annot-text-decoration-function text))
           (annot-save-annotations)
-          (annot-base-buffer-edit text))))))
+          (annot-base-buffer-edit text)))))))
 
 
 (defun annot-remove (&optional ov silent)
@@ -214,11 +224,17 @@ separately.")
 
 
 (defun annot-edit/add ()
-  "Either edit the annotation at point, if there is, or else add a new one."
+  "Either edit the annotation at point, if there is, or else add a new one.
+If a region is specified, a highlight annotation will be added or edited."
   (interactive)
-  (if (annot-get-annotation-at-point)
-      (annot-edit)
-    (annot-add)))
+  (let (ov)
+    (cond
+     ((region-active-p)
+      (annot-add))
+     ((and (setq ov (annot-get-annotation-at-point))
+           (not (annot-highlight-p ov)))
+      (annot-edit ov))
+     (t (annot-add)))))
 
 
 (defun annot-load-annotations ()
@@ -242,14 +258,14 @@ the file or not."
 ;;; indirect buffer: multiple indirect buffers pointing to the same base buffer
 ;;; may not be fully reflected.
 
-(defun annot-base-buffer-add (text)
+(defun annot-base-buffer-add (text/image/region)
   (let ((base-buffer (buffer-base-buffer)))
     (when base-buffer
       (let ((p (point)))
         (with-current-buffer base-buffer
           (save-excursion
             (goto-char p)
-            (push (annot-create-overlay (point) text) annot-buffer-overlays)
+            (push (annot-create-new text/image/region) annot-buffer-overlays)
             (annot-save-annotations)))))))
 
 
@@ -311,6 +327,24 @@ If `annot-md5-max-chars' is nil, no limit is imposed."
          nil t)))
 
 
+(defsubst annot-highlight-p (ov)
+  "non-nil if an overlay `ov' is of type highlight."
+  (equal (overlay-get ov :type) 'highlight))
+
+
+(defun annot-create-new (text/image/region)
+  "Create a new overlay depending of the content of `text/image/region'."
+  (cond
+   ((or (null text/image/region)
+        (stringp text/image/region))
+    (let ((text/image (or text/image/region (read-string "Annotation: "))))
+      (unless (zerop (length (annot-trim text/image)))
+        (annot-create-overlay (point) text/image))))
+   ((listp text/image/region)
+    (let ((region text/image/region))
+      (annot-create-highlight-overlay (car region) (cdr region))))))
+
+
 (defun annot-file-exists-p ()
   "Returns an annotation filename if current buffer accompanies with it."
   (let ((annot-filename (annot-get-annot-filename (annot-md5 (current-buffer)))))
@@ -335,25 +369,45 @@ If `annot-md5-max-chars' is nil, no limit is imposed."
 
 (defun annot-get-annotation-at-point ()
   "Get annotation \(equiv. overlay) at point, or if none found, 1+ point." 
-  (let ((p (point)))
+  (let ((p (point)) ovs)
     (car (or (overlays-in p p)
              (overlays-in (min (point-max) (1+ p))
-                          (min (point-max) (1+ p)))))))
+                          (min (point-max) (1+ p)))
+             (and
+              (setq ovs (overlays-in (max (point-min) (1- p)) p))
+              (annot-highlight-p (car ovs))
+              ovs)))))
 
 
-(defun annot-create-overlay (pos text)
-  "Create an overlay for the annotation text."
-  ;; (assert (not (zerop (length (annot-trim text)))))
-  (let ((ov (make-overlay pos pos nil t nil)))
-    (overlay-put ov 'before-string    ;; after-string
-                 (funcall annot-text-decoration-function text))
+(defun annot-create-overlay (pos text/image)
+  "Create a text overlay or image overlay."
+  ;; (assert (not (zerop (length (annot-trim text/image)))))
+  (let ((ov (make-overlay pos pos nil nil nil)))
+    (overlay-put ov 'before-string
+                 (funcall annot-text-decoration-function text/image))
     (overlay-put ov :pos pos)    ;; it will be saved later anyways...
-    (overlay-put ov :prev
-                 (buffer-substring-no-properties
-                  (max (point-min) (- (point) annot-subsequence-length)) (point)))
-    (overlay-put ov :next
-                 (buffer-substring-no-properties
-                  (point) (min (point-max) (+ (point) annot-subsequence-length))))
+    (overlay-put ov :prev (buffer-substring-no-properties
+                           (max (point-min) (- pos annot-subsequence-length)) pos))
+    (overlay-put ov :next (buffer-substring-no-properties
+                           pos (min (point-max) (+ pos annot-subsequence-length))))
+    (if (get-text-property 0 'display text/image)
+        (overlay-put ov :type 'image)
+      (overlay-put ov :type 'text))
+    ov))
+
+
+(defun annot-create-highlight-overlay (beg end)
+  "Create a highlight overlay starting from `beg' to `end'."
+  (let ((ov (make-overlay beg end nil nil t)))
+    (overlay-put ov 'face 'annot-highlighter-face)
+    (overlay-put ov 'evaporate t)
+    (overlay-put ov :prev (buffer-substring-no-properties
+                           (max (point-min) (- beg annot-subsequence-length)) beg))
+    (overlay-put ov :next (buffer-substring-no-properties
+                           end (min (point-max) (+ end annot-subsequence-length))))
+    (overlay-put ov :beg beg)
+    (overlay-put ov :end end)
+    (overlay-put ov :type 'highlight)
     ov))
 
 
@@ -409,16 +463,21 @@ previous filename, return delete the previous file."
            (annot-filename (annot-get-annot-filename md5))
            (modtime (or (plist-get annot-buffer-plist :modtime) (float-time)))
            (bufname (buffer-name)) s)
-      ;; Update :pos and :next of each overlay
+      ;; Update ((:beg/:end)|:pos) and :prev/:next of each overlay
       (dolist (ov annot-buffer-overlays)
-        (let ((p (overlay-start ov)))
-          (overlay-put ov :pos p)
+        (let ((beg (overlay-start ov))
+              (end (overlay-end ov)))
+          (if (annot-highlight-p ov)
+              (progn
+                (overlay-put ov :beg beg)
+                (overlay-put ov :end end))
+            (overlay-put ov :pos end))
           (overlay-put ov :prev
                        (buffer-substring-no-properties
-                        (max (point-min) (- p annot-subsequence-length)) p))
+                        (max (point-min) (- beg annot-subsequence-length)) beg))
           (overlay-put ov :next
                        (buffer-substring-no-properties
-                        p (min (point-max) (+ p annot-subsequence-length))))))
+                        end (min (point-max) (+ end annot-subsequence-length))))))
       
       ;; Delete previous symlink, if any, before creating one.
       (when (and prev-md5 prev-filename (not (string= prev-md5 md5)))
@@ -499,44 +558,54 @@ Only annotation files use this function internally."
         (setq annot-buffer-overlays nil))
       ;; Mmmkay, let's reproduce annotations.
       (dolist (ov-plist annotations)
-        (let ((pos (plist-get ov-plist :pos))
-              (prev-string (plist-get ov-plist :prev)))
+        (let ((prev-string (plist-get ov-plist :prev)) beg end)
+          (if (setq beg (plist-get ov-plist :beg))
+              (setq end (plist-get ov-plist :end))
+            (setq beg (plist-get ov-plist :pos)
+                  end beg))
+          ;; Integrity checking:
           (when (and
+                 (if (equal (plist-get ov-plist :type) 'highlight)
+                     (< (plist-get ov-plist :beg) (plist-get ov-plist :end))
+                   (> (length (plist-get ov-plist 'before-string)) 0))
                  (string= prev-string
                           (buffer-substring-no-properties
-                           (max (point-min) (- pos (length prev-string))) pos))
+                           (max (point-min) (- beg (length prev-string))) beg))
                  (or (null annot-enable-strict-integrity-checking)
                      (and annot-enable-strict-integrity-checking
                           (let ((next-string (plist-get ov-plist :next)))
                             (string= next-string
                                      (buffer-substring-no-properties
-                                      pos (min (point-max)
-                                               (+ pos (length next-string)))))))))
-            (push (annot-recover-overlay ov-plist) annot-buffer-overlays))))
+                                      end (min (point-max)
+                                               (+ end (length next-string)))))))))
+            ;; OK to reproduce.
+            (push (annot-recover-overlay ov-plist beg end) annot-buffer-overlays))))
       (setq annot-buffer-plist
-            `(:md5            ,(plist-get annotations-info :md5)
-              :filename       ,(plist-get annotations-info :filename)
-              :bufname        ,(plist-get annotations-info :bufname)
-              :annot-filename ,(plist-get annotations-info :annot-filename)
-              :modtime        ,modtime)))))
+            `(:md5 ,(plist-get annotations-info :md5)
+                   :filename       ,(plist-get annotations-info :filename)
+                   :bufname        ,(plist-get annotations-info :bufname)
+                   :annot-filename ,(plist-get annotations-info :annot-filename)
+                   :modtime        ,modtime)))))
 
 
-(defun annot-recover-overlay (ov-plist)
+(defun annot-recover-overlay (ov-plist beg end)
   "Recover an overlay."
-  (let* ((pos (plist-get ov-plist :pos))
-         (ov  (make-overlay pos pos nil t nil)))
+  (let* ((ov (make-overlay beg end nil nil
+                           (equal (plist-get ov-plist :type) 'highlight))))
     (dotimes (i (length ov-plist))
       (when (eq (logand i 1) 0)
         (overlay-put ov (nth i ov-plist) (nth (1+ i) ov-plist))))
     ov))
 
 
-(defun annot-delete-annotations-region (start end)
+(defun annot-delete-annotations-region (r-beg r-end)
   "Delete all annotations in region."
   (interactive "r")
   (dolist (ov annot-buffer-overlays)
-    (let ((p (overlay-start ov)))
-      (if (or (null p) (and (>= end p) (>= p start)))
+    (let ((beg (overlay-start ov))
+          (end (overlay-end ov)))
+      (if (or (null beg) (null end)
+              (and (>= r-end end) (>= beg r-beg)))
           (annot-remove ov t)))))
 
 
