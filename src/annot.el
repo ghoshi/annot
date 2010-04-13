@@ -162,7 +162,8 @@ If a marked region is present, highlight it."
   (interactive)
   (let* ((text/image/region (if (region-active-p)
                                 `(,(region-beginning) . ,(region-end))
-                              text/image))
+                              (or text/image
+                                  (read-string "Annotation: "))))
          (ov (annot-create-new text/image/region)))
     (when ov
       (push ov annot-buffer-overlays)
