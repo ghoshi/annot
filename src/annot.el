@@ -70,6 +70,7 @@
 ;;     - search for :next subsequence from the last successful position. if found, check :prev at the point.
 ;;     - if matched, create an overlay for it and mark the position as successful.
 ;; * "Import annotations" feature.
+;; * annot-remove: be compatible with a region.
 ;; * Hook annotation type: attaches to a hook locally and executes stuff.
 ;; * Kill-ring support: `kill-region', `yank'
 ;; * Primitive undo management.
@@ -533,8 +534,16 @@ previous filename, return delete the previous file."
               (plist-put annot-buffer-plist
                          (intern (format ":%S" e)) (symbol-value e))))
       
-      ;; If md5 doesn't matche the previous one, delete the old annotation file.
-      (when (and prev-md5 (not (string= prev-md5 md5)))
+      ;; If md5 doesn't match the previous one, and both files
+      ;; refer to the same file, delete the old annotation file.
+      ;; In the case of
+      ;; $ cp a b ; emacs b   # and then modify b
+      ;; we still want to keep annotations for a (and b).
+      ;; On the other hand, we do not want to keep obsolete annotations
+      ;; if prev and current versions both point to the same file.
+      (when (and prev-md5
+                 (not (string= prev-md5 md5))
+                 (string= prev-filename filename))
         (let ((old-annot-filename (annot-get-annot-filename prev-md5)))
           (if (file-readable-p old-annot-filename)
               (delete-file old-annot-filename))))
