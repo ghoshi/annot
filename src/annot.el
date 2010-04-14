@@ -58,9 +58,17 @@
 
 ;;; Todo:
 
-;; * Newline (\n) highlighting is to be avoided, since it only looks ugly, flashy, and unintuitive.
-;; (DONE: Support text highlighting - http://code.google.com/p/annot/wiki/TextHighlighting)
-;; * Sticky recovery when :pos does not match.
+;; * Sticky recovery when :pos does not match:
+;;   - sort annotations (a list of ov-plist) first
+;;     (setq annotations (sort annotations
+;;                         (lambda (op1 op2)
+;;                           (< (or (plist-get op1 :beg) (plist-get op1 :pos))
+;;                              (or (plist-get op2 :beg) (plist-get op2 :pos))))))
+;;   - if md5 is the same, just do the normal integrity checking.
+;;   - if not, do the normal integrity checking upto the point where the check fails first.
+;;   - from the last successful position (:beg or :pos), iterate the following:
+;;     - search for :next subsequence from the last successful position. if found, check :prev at the point.
+;;     - if matched, create an overlay for it and mark the position as successful.
 ;; * "Import annotations" feature.
 ;; * Hook annotation type: attaches to a hook locally and executes stuff.
 ;; * Kill-ring support: `kill-region', `yank'
@@ -164,9 +172,10 @@ If a marked region is present, highlight it."
                                 `(,(region-beginning) . ,(region-end))
                               (or text/image
                                   (read-string "Annotation: "))))
-         (ov (annot-create-new text/image/region)))
-    (when ov
-      (push ov annot-buffer-overlays)
+         (ov-list (annot-create-new text/image/region)))
+    (when ov-list
+      (dolist (ov ov-list)
+        (push ov annot-buffer-overlays))
       (annot-save-annotations)
       ;; When on indirect buffer, sync with its base buffer as well.
       (annot-base-buffer-add text/image/region))))
@@ -266,8 +275,11 @@ the file or not."
         (with-current-buffer base-buffer
           (save-excursion
             (goto-char p)
-            (push (annot-create-new text/image/region) annot-buffer-overlays)
-            (annot-save-annotations)))))))
+            (let ((ov-list (annot-create-new text/image/region)))
+              (when ov-list
+                (dolist (ov ov-list)
+                  (push ov annot-buffer-overlays))
+                (annot-save-annotations)))))))))
 
 
 (defun annot-base-buffer-remove ()
@@ -334,16 +346,33 @@ If `annot-md5-max-chars' is nil, no limit is imposed."
 
 
 (defun annot-create-new (text/image/region)
-  "Create a new overlay depending of the content of `text/image/region'."
+  "Create a new list of overlay(s) depending of the content of `text/image/region'.
+In particular, a text highlight may yield multiple overlays depending on
+the region ends."
   (cond
    ((or (null text/image/region)
         (stringp text/image/region))
     (let ((text/image (or text/image/region (read-string "Annotation: "))))
       (unless (zerop (length (annot-trim text/image)))
-        (annot-create-overlay (point) text/image))))
+        (list (annot-create-overlay (point) text/image)))))
    ((listp text/image/region)
-    (let ((region text/image/region))
-      (annot-create-highlight-overlay (car region) (cdr region))))))
+    (let ((beg (car text/image/region))
+          (end (cdr text/image/region)) ov-list a b)
+      (save-excursion
+        (goto-char beg)
+        (while (and
+                (< (point) end)
+                (re-search-forward "[[:graph:]]" end t)
+                (setq a (goto-char (match-beginning 0))))
+          (if (and
+               (re-search-forward "[[:graph:]][^[:graph:]]*?$" end t)
+               (setq b (goto-char (1+ (match-beginning 0)))))
+              (push (annot-create-highlight-overlay a b) ov-list)
+            (goto-char end)
+            (save-excursion
+              (when (re-search-backward "[[:graph:]]" beg t)
+                (push (annot-create-highlight-overlay a (match-end 0)) ov-list))))))
+      ov-list))))
 
 
 (defun annot-file-exists-p ()
