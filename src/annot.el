@@ -27,12 +27,16 @@
 ;; Description:
 ;;
 ;; `annot.el' is a general and scalable annotation manager that works on GNU
-;; Emacs.  It lets you add/remove/edit annotations on any file (or buffer) and
-;; manages them for later use. All annotations are stored separately for each
-;; annotated file and get reproduced when the file is opened again. You can even
-;; store annotations on non-editable files.  Because annot keeps track of md5
-;; checksums of annotated files, annotations won't disappear even when file
+;; Emacs.  It lets you add/remove/edit annotations and highlights on any file
+;; and manages them for later use. All annotations are stored separately for
+;; each annotated file and get reproduced when the file is opened again. You can
+;; even store annotations on non-editable files.  Because annot keeps track of
+;; md5 checksums of annotated files, annotations won't disappear even when file
 ;; names are changed.
+;; 
+;; Requirement:
+;; 
+;; GNU Emacs 23 or higher.
 ;; 
 ;; Installation:
 ;;
@@ -70,7 +74,6 @@
 ;;     - search for :next subsequence from the last successful position. if found, check :prev at the point.
 ;;     - if matched, create an overlay for it and mark the position as successful.
 ;; * "Import annotations" feature.
-;; * annot-remove: be compatible with a region.
 ;; * Hook annotation type: attaches to a hook locally and executes stuff.
 ;; * Kill-ring support: `kill-region', `yank'
 ;; * Primitive undo management.
@@ -137,7 +140,7 @@ annotation's position."
 
 (defface annot-highlighter-face
   '((((class color) (background light)) (:background "yellow"))
-    (((class color) (background dark)) (:background "red")))
+    (((class color) (background dark)) (:foreground "white" :background "red2")))
   "Face for highlighted text."
   :group 'annot)
 
@@ -222,16 +225,22 @@ If a marked region is present, highlight it."
 
 
 (defun annot-remove (&optional ov silent)
-  "Remove a nearby annotation on the current line."
+  "Remove a nearby annotation on the current line.
+If a regioin is specified, remove all annotations and highlights within it."
   (interactive)
-  (let ((ov (or ov (annot-get-annotation-at-point))))
-    (when ov
-      (setq annot-buffer-overlays (delq ov annot-buffer-overlays))
-      (delete-overlay ov)
-      (annot-save-annotations)
-      (annot-base-buffer-remove)
-      (unless silent
-        (message "Annotation removed.")))))
+  (if (region-active-p)
+      (let ((beg (region-beginning))
+            (end (region-end)))
+        (deactivate-mark t)    ;; Avoid endless recursion.
+        (annot-delete-annotations-region beg end))
+    (let ((ov (or ov (annot-get-annotation-at-point))))
+      (when ov
+        (setq annot-buffer-overlays (delq ov annot-buffer-overlays))
+        (delete-overlay ov)
+        (annot-save-annotations)
+        (annot-base-buffer-remove)
+        (unless silent
+          (message "Annotation removed."))))))
 
 
 (defun annot-edit/add ()
@@ -241,7 +250,8 @@ If a region is specified, a highlight annotation will be added or edited."
   (let (ov)
     (cond
      ((region-active-p)
-      (annot-add))
+      (annot-add)
+      (deactivate-mark t))
      ((and (setq ov (annot-get-annotation-at-point))
            (not (annot-highlight-p ov)))
       (annot-edit ov))
@@ -537,7 +547,7 @@ previous filename, return delete the previous file."
       ;; If md5 doesn't match the previous one, and both files
       ;; refer to the same file, delete the old annotation file.
       ;; In the case of
-      ;; $ cp a b ; emacs b   # and then modify b
+      ;; $ cp a b ; emacs b   # then modify b and maybe add/edit/remove annotation/highlight.
       ;; we still want to keep annotations for a (and b).
       ;; On the other hand, we do not want to keep obsolete annotations
       ;; if prev and current versions both point to the same file.
@@ -643,9 +653,9 @@ Only annotation files use this function internally."
   (dolist (ov annot-buffer-overlays)
     (let ((beg (overlay-start ov))
           (end (overlay-end ov)))
-      (if (or (null beg) (null end)
-              (and (>= r-end end) (>= beg r-beg)))
-          (annot-remove ov t)))))
+      (when (or (null beg) (null end)
+                (and (>= r-end end) (>= beg r-beg)))
+        (annot-remove ov t)))))
 
 
 ;;; Keybindings.
