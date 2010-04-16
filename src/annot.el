@@ -1,4 +1,4 @@
-;;; annot.el --- a global annotation manager for GNU Emacs
+;;; annot.el --- a global annotator/highlighter for GNU Emacs
 
 ;; Copyright (C) 2010 tkykhs
 
@@ -46,7 +46,7 @@
 ;; 
 ;; Keybindings:
 ;;
-;; * [C-x a]    -  add new annotation or edit existing annotation.
+;; * [C-x a]    -  add a new annotation/highlight or edit an existing annotation/highlight.
 ;;                 You can also use [C-x C-a]. (annot-edit/add)
 ;; * [C-x r]    -  remove annotation at point. (annot-remove)
 ;; * [C-x w]    -  insert an image at point. (annot-add-image)
@@ -54,9 +54,9 @@
 ;; User Commands:
 ;; 
 ;; * `annot-edit/add'  - either edit the annotation at point, if there is,
-;;                       or else add a new one.
-;; * `annot-remove'    - remove the annotation at point.
-;; * `annot-add'       - add an annotation at point.
+;;                       or else add a new annotation or highlight.
+;; * `annot-remove'    - remove the annotation/highlight at point.
+;; * `annot-add'       - add a new annotation/highlight at point.
 ;; * `annot-edit'      - edit the annotation at point.
 ;; * `annot-add-image' - insert an image at point.
 
@@ -220,6 +220,7 @@ If a marked region is present, highlight it."
             (annot-remove ov)
           (overlay-put ov 'before-string
                        (funcall annot-text-decoration-function text))
+          (overlay-put ov :modtime (float-time))
           (annot-save-annotations)
           (annot-base-buffer-edit text)))))))
 
@@ -368,7 +369,8 @@ the region ends."
         (list (annot-create-overlay (point) text/image)))))
    ((listp text/image/region)
     (let ((beg (car text/image/region))
-          (end (cdr text/image/region)) ov-list a b)
+          (end (cdr text/image/region))
+          (modtime (float-time))  ov-list a b)
       (save-excursion
         (goto-char beg)
         (while (and
@@ -378,11 +380,11 @@ the region ends."
           (if (and
                (re-search-forward "[[:graph:]][^[:graph:]]*?$" end t)
                (setq b (goto-char (1+ (match-beginning 0)))))
-              (push (annot-create-highlight-overlay a b) ov-list)
+              (push (annot-create-highlight-overlay a b modtime) ov-list)
             (goto-char end)
             (save-excursion
               (when (re-search-backward "[[:graph:]]" beg t)
-                (push (annot-create-highlight-overlay a (match-end 0)) ov-list))))))
+                (push (annot-create-highlight-overlay a (match-end 0) modtime) ov-list))))))
       ov-list))))
 
 
@@ -434,10 +436,11 @@ the region ends."
     (if (get-text-property 0 'display text/image)
         (overlay-put ov :type 'image)
       (overlay-put ov :type 'text))
+    (overlay-put ov :modtime (float-time))
     ov))
 
 
-(defun annot-create-highlight-overlay (beg end)
+(defun annot-create-highlight-overlay (beg end &optional modtime)
   "Create a highlight overlay starting from `beg' to `end'."
   (let ((ov (make-overlay beg end nil nil t)))
     (overlay-put ov 'face 'annot-highlighter-face)
@@ -449,6 +452,7 @@ the region ends."
     (overlay-put ov :beg beg)
     (overlay-put ov :end end)
     (overlay-put ov :type 'highlight)
+    (overlay-put ov :modtime (or modtime (float-time)))
     ov))
 
 
