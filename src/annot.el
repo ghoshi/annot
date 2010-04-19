@@ -73,7 +73,6 @@
 ;;   - from the last successful position (:beg or :pos), iterate the following:
 ;;     - search for :next subsequence from the last successful position. if found, check :prev at the point.
 ;;     - if matched, create an overlay for it and mark the position as successful.
-;; * Hook annotation type: attaches to a hook locally and executes stuff.
 ;; * Kill-ring support: `kill-region', `yank'
 ;; * Primitive undo management.
 
@@ -692,8 +691,9 @@ Only annotation files use this function internally."
 (defun annot-after-save-hook ()
   (when annot-buffer-modified-p
     (annot-save-annotations)
-    ;; Let's make it a rule that if the last annotation in the buffer starts
-    ;; with "after-save:", then execute the following s-exp just after save-buffer.
+    ;; Let's make it a rule that if the current buffer is modified and the last
+    ;; annotation in the buffer is of the form "after-save: <s-exp>", then
+    ;; evaluate <s-exp> just after save-buffer.
     (let (last-ov s s-exp)
       (when (and annot-buffer-overlays
                  (setq last-ov (annot-argmax annot-buffer-overlays
