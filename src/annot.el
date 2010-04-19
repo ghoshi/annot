@@ -73,7 +73,6 @@
 ;;   - from the last successful position (:beg or :pos), iterate the following:
 ;;     - search for :next subsequence from the last successful position. if found, check :prev at the point.
 ;;     - if matched, create an overlay for it and mark the position as successful.
-;; * "Import annotations" feature.
 ;; * Hook annotation type: attaches to a hook locally and executes stuff.
 ;; * Kill-ring support: `kill-region', `yank'
 ;; * Primitive undo management.
@@ -350,6 +349,17 @@ If `annot-md5-max-chars' is nil, no limit is imposed."
              nil
            (min annot-md5-max-chars (point-max)))
          nil t)))
+
+
+(defsubst annot-argmax (L fn)
+  (let* ((best (car L))
+         (best-score (funcall fn best)) score)
+    (dolist (e L)
+      (when (> (setq score (funcall fn e))
+               best-score)
+        (setq best-score score
+              best e)))
+    best))
 
 
 (defsubst annot-highlight-p (ov)
@@ -681,7 +691,18 @@ Only annotation files use this function internally."
 
 (defun annot-after-save-hook ()
   (when annot-buffer-modified-p
-    (annot-save-annotations))
+    (annot-save-annotations)
+    ;; Let's make it a rule that if the last annotation in the buffer starts
+    ;; with "after-save:", then execute the following s-exp just after save-buffer.
+    (let (last-ov s s-exp)
+      (when (and annot-buffer-overlays
+                 (setq last-ov (annot-argmax annot-buffer-overlays
+                                             (lambda (ov) (overlay-start ov))))
+                 (setq s (overlay-get last-ov 'before-string))
+                 (string-match "\\` *after-save: *\\(.+\\)" s))
+        (message "'after-save' annotation found. Evaluating: %S"
+                 (setq s-exp (match-string 1 s)))
+        (eval (read s-exp)))))
   (setq annot-buffer-modified-p nil))
 (add-hook 'after-save-hook 'annot-after-save-hook)
 (add-hook 'find-file-hook 'annot-load-annotations)
