@@ -5,7 +5,7 @@
 ;; Author:     tkykhs <tkykhs@gmail.com>
 ;; Maintainer: tkykhs
 ;; Created:    March 28, 2010
-;; Keywords:   annotations
+;; Keywords:   convenience, frames, local, multimedia, terminals, tools
 
 ;; This file is not (yet) part of GNU Emacs.
 
@@ -164,7 +164,7 @@ separately.")
 (make-variable-buffer-local 'annot-buffer-plist)
 
 
-;;; User commands.
+;;;; User commands.
 
 (defun annot-add (&optional text/image)
   "Add an annotation on the current point.
@@ -273,10 +273,26 @@ the file or not."
           (load-file filename)))))
 
 
-;;; Functions for synching up with an indirect buffer's annotations (but not the
-;;; oppositve - i.e. upward direction only).  This supports no more than single
-;;; indirect buffer: multiple indirect buffers pointing to the same base buffer
-;;; may not be fully reflected.
+(defun annot-to-comment ()
+  "Convert a text annotation at point to a comment."
+  (interactive)
+  (if buffer-read-only
+      (message "This buffer cannot be edited.")
+    (let ((ov (annot-get-annotation-at-point)))
+      (when (and ov (not (annot-highlight-p ov)))
+        (save-excursion
+          (annot-remove ov t)
+          (insert (format " %s%s%s"
+                          comment-start
+                          (annot-trim (overlay-get ov 'before-string))
+                          comment-end)))))))
+
+
+;;;; Indirect buffer functions.
+;; These are functions for synching up with an indirect buffer's annotations
+;; (but not the oppositve - i.e. upward direction only).  This supports no more
+;; than single indirect buffer: multiple indirect buffers pointing to the same
+;; base buffer may not be fully reflected.
 
 (defun annot-base-buffer-add (text/image/region)
   (let ((base-buffer (buffer-base-buffer)))
@@ -317,7 +333,7 @@ the file or not."
             (annot-save-annotations)))))))
 
 
-;;; Internal functions.
+;;;; Internal functions.
 
 (defsubst annot-trim (s)
   "Trim non-graphic chars from both ends of string s." 
@@ -671,7 +687,7 @@ Only annotation files use this function internally."
         (annot-remove ov t)))))
 
 
-;;; Keybindings.
+;;;; Keybindings.
 
 (define-key ctl-x-map "a"    'annot-edit/add)
 (define-key ctl-x-map "\C-a" 'annot-edit/add)
@@ -679,7 +695,7 @@ Only annotation files use this function internally."
 (define-key ctl-x-map "w"    'annot-add-image)
 
 
-;;; Hooks and Advices.
+;;;; Hooks and Advices.
 
 (defvar annot-buffer-modified-p nil)
 (make-variable-buffer-local 'annot-buffer-modified-p)
