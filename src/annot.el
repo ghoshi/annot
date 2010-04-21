@@ -439,8 +439,6 @@ the region ends."
   "Get annotation \(equiv. overlay) at point, or if none found, 1+ point." 
   (let ((p (point)) ovs)
     (car (or (overlays-in p p)
-             (overlays-in (min (point-max) (1+ p))
-                          (min (point-max) (1+ p)))
              (and
               (setq ovs (overlays-in (max (point-min) (1- p)) p))
               (annot-highlight-p (car ovs))
@@ -716,8 +714,8 @@ Only annotation files use this function internally."
                                              (lambda (ov) (overlay-start ov))))
                  (setq s (overlay-get last-ov 'before-string))
                  (string-match "\\` *after-save: *\\(.+\\)" s))
-        (message "'after-save' annotation found. Evaluating: %S"
-                 (setq s-exp (match-string 1 s)))
+        (message "Evaluating: %s"
+                 (setq s-exp (match-string-no-properties 1 s)))
         (eval (read s-exp)))))
   (setq annot-buffer-modified-p nil))
 (add-hook 'after-save-hook 'annot-after-save-hook)
