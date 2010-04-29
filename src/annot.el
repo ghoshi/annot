@@ -62,17 +62,6 @@
 
 ;;; Todo:
 
-;; * Sticky recovery when :pos does not match:
-;;   - sort annotations (a list of ov-plist) first
-;;     (setq annotations (sort annotations
-;;                         (lambda (op1 op2)
-;;                           (< (or (plist-get op1 :beg) (plist-get op1 :pos))
-;;                              (or (plist-get op2 :beg) (plist-get op2 :pos))))))
-;;   - if md5 is the same, just do the normal integrity checking.
-;;   - if not, do the normal integrity checking upto the point where the check fails first.
-;;   - from the last successful position (:beg or :pos), iterate the following:
-;;     - search for :next subsequence from the last successful position. if found, check :prev at the point.
-;;     - if matched, create an overlay for it and mark the position as successful.
 ;; * Kill-ring support: `kill-region', `yank'
 ;; * Primitive undo management.
 
@@ -264,9 +253,10 @@ happen as long as you keep using annot), it asks whether to load
 the file or not."
   (interactive)
   (unless (member major-mode annot-load-disabled-modes)
-    (let (filename)
+    (let ((current-md5 (annot-md5 (current-buffer)))
+          filename)
       (if (or (file-readable-p 
-               (setq filename (annot-get-annot-filename (annot-md5 (current-buffer)))))
+               (setq filename (annot-get-annot-filename current-md5)))
               ;; If md5 fails, try symlink.
               (and (setq filename (annot-get-symlink (buffer-file-name)))
                    (file-readable-p filename)))
@@ -615,63 +605,125 @@ Create the annot content directory if it does not exist."
     (make-backup-file-name (expand-file-name filename)))))
 
 
+
+(defsubst annot-get-beg (ov-plist)
+  "Get the starting point of an annotation represented by `ov-plist'." 
+  (or (plist-get ov-plist :beg)
+      (plist-get ov-plist :pos)))
+
+(defsubst annot-get-end (ov-plist)
+  "Get the end point of an annotation represented by `ov-plist'." 
+  (or (plist-get ov-plist :end)
+      (plist-get ov-plist :pos)))
+
+
+(defun annot-recover-overlay (ov-plist)
+  "Recover an overlay."
+  (let* ((ov (make-overlay (annot-get-beg ov-plist)
+                           (annot-get-end ov-plist)
+                           nil nil
+                           (equal (plist-get ov-plist :type) 'highlight))))
+    (dotimes (i (length ov-plist))
+      (when (eq (logand i 1) 0)
+        (overlay-put ov (nth i ov-plist) (nth (1+ i) ov-plist))))
+    ov))
+
+
+(defun annot-valid-p (ov-plist &optional force-strict-checking)
+  "Do an integrity checking on annotation/highlight plist.
+In particular, the prev-string of each `ov-plist' gets verified.
+If `annot-enable-strict-integrity-checking' is non-nil, check
+the next-string as well."
+  (let ((prev-string (plist-get ov-plist :prev))
+        (beg (annot-get-beg ov-plist))
+        (end (annot-get-end ov-plist)))
+    (and
+     (<= end (point-max))
+     (if (equal (plist-get ov-plist :type) 'highlight)
+         (< beg end)
+       (> (length (plist-get ov-plist 'before-string)) 0))
+     (string= prev-string
+              (buffer-substring-no-properties
+               (max (point-min) (- beg (length prev-string))) beg))
+     (or (and (null annot-enable-strict-integrity-checking)
+              (null force-strict-checking))
+         (let ((next-string (plist-get ov-plist :next)))
+           (string= next-string
+                    (buffer-substring-no-properties
+                     end (min (point-max)
+                              (+ end (length next-string))))))))))
+
+
 (defun annot-recover-annotations (annotations-info)
-  "Recover annotations.
+  "Restore annotations.
 Only annotation files use this function internally."
-  (let ((annotations (plist-get annotations-info :annotations))
-        (modtime     (plist-get annotations-info :modtime))
+  (let ((annotations (plist-get annotations-info   :annotations))
+        (modtime     (plist-get annotations-info   :modtime))
         (var-modtime (plist-get annot-buffer-plist :modtime)))
     (when (or (null var-modtime)
               (not (< modtime var-modtime))
               ;; If annot-buffer-overlays has updated modtime, ask.
               (y-or-n-p (concat "Modification time for stored annotations"
                                 " appears be older. Load them anyways? ")))
+      
       ;; If by any chance `annot-buffer-overlays' contains some overlays,
       ;; delete them all.
       (when annot-buffer-overlays
         (dolist (ov annot-buffer-overlays)
           (delete-overlay ov))
         (setq annot-buffer-overlays nil))
+      
+      ;; Sort annotations/highlights by beg position.
+      ;;
+      ;; The following constraint would omit some extra computation. However,
+      ;; since we cannot guarantee that `annot-md5-max-chars' would cover all
+      ;; lengths of annotated files that are to be opened, not imposing it is
+      ;; more accurate and indeed desirable.
+      ;; 
+      ;; (when (boundp 'current-md5)
+      ;;   (unless (string= current-md5 (plist-get annotations-info :md5))
+      ;;
+      (setq annotations (sort annotations
+                              (lambda (op1 op2)
+                                (< (annot-get-beg op1)
+                                   (annot-get-beg op2)))))
+      
       ;; Mmmkay, let's reproduce annotations.
-      (dolist (ov-plist annotations)
-        (let ((prev-string (plist-get ov-plist :prev)) beg end)
-          (if (setq beg (plist-get ov-plist :beg))
-              (setq end (plist-get ov-plist :end))
-            (setq beg (plist-get ov-plist :pos)
-                  end beg))
-          ;; Integrity checking:
-          (when (and
-                 (if (equal (plist-get ov-plist :type) 'highlight)
-                     (< (plist-get ov-plist :beg) (plist-get ov-plist :end))
-                   (> (length (plist-get ov-plist 'before-string)) 0))
-                 (string= prev-string
-                          (buffer-substring-no-properties
-                           (max (point-min) (- beg (length prev-string))) beg))
-                 (or (null annot-enable-strict-integrity-checking)
-                     (and annot-enable-strict-integrity-checking
-                          (let ((next-string (plist-get ov-plist :next)))
-                            (string= next-string
-                                     (buffer-substring-no-properties
-                                      end (min (point-max)
-                                               (+ end (length next-string)))))))))
-            ;; OK to reproduce.
-            (push (annot-recover-overlay ov-plist beg end) annot-buffer-overlays))))
+      (save-excursion
+        (let ((last-valid-point (point-min))
+              invalid-found-p)
+          (dolist (ov-plist annotations)
+            (cond
+             ((and (null invalid-found-p) (annot-valid-p ov-plist))
+              (push (annot-recover-overlay ov-plist) annot-buffer-overlays)
+              (setq last-valid-point (annot-get-beg ov-plist)))
+             ;; Linear recovery in case some invalid annotation is found.
+             (t
+              (when (null invalid-found-p) ;; first time
+                (setq invalid-found-p t))
+              (let ((prev-string (plist-get ov-plist :prev))
+                    (type (plist-get ov-plist :type)))
+                (goto-char (max (point-min) (- last-valid-point (length prev-string))))
+                (catch 'found
+                  (while (search-forward prev-string nil t)
+                    ;; Change beg/end points before validation.
+                    (if (not (equal type 'highlight))
+                        (setq ov-plist (plist-put ov-plist :pos (point)))
+                      (setq ov-plist (plist-put ov-plist :end (+ (point) (- (annot-get-end ov-plist)
+                                                                            (annot-get-beg ov-plist)))))
+                      (setq ov-plist (plist-put ov-plist :beg (point))))
+                    ;; Check and, if ok, create an overlay.
+                    (when (annot-valid-p ov-plist 'force-strict-checking)
+                      (push (annot-recover-overlay ov-plist) annot-buffer-overlays)
+                      (setq last-valid-point (annot-get-beg ov-plist))
+                      (throw 'found t))))))))))
+      
       (setq annot-buffer-plist
             `(:md5 ,(plist-get annotations-info :md5)
                    :filename       ,(plist-get annotations-info :filename)
                    :bufname        ,(plist-get annotations-info :bufname)
                    :annot-filename ,(plist-get annotations-info :annot-filename)
                    :modtime        ,modtime)))))
-
-
-(defun annot-recover-overlay (ov-plist beg end)
-  "Recover an overlay."
-  (let* ((ov (make-overlay beg end nil nil
-                           (equal (plist-get ov-plist :type) 'highlight))))
-    (dotimes (i (length ov-plist))
-      (when (eq (logand i 1) 0)
-        (overlay-put ov (nth i ov-plist) (nth (1+ i) ov-plist))))
-    ov))
 
 
 (defun annot-delete-annotations-region (r-beg r-end)
