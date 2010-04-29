@@ -438,7 +438,7 @@ the region ends."
 (defun annot-create-overlay (pos text/image)
   "Create a text overlay or image overlay."
   ;; (assert (not (zerop (length (annot-trim text/image)))))
-  (let ((ov (make-overlay pos pos nil nil nil)))
+  (let ((ov (make-overlay pos pos nil t nil)))
     (overlay-put ov 'before-string
                  (funcall annot-text-decoration-function text/image))
     (overlay-put ov :pos pos)    ;; it will be saved later anyways...
@@ -455,7 +455,7 @@ the region ends."
 
 (defun annot-create-highlight-overlay (beg end &optional modtime)
   "Create a highlight overlay starting from `beg' to `end'."
-  (let ((ov (make-overlay beg end nil nil t)))
+  (let ((ov (make-overlay beg end nil t nil)))
     (overlay-put ov 'face 'annot-highlighter-face)
     (overlay-put ov 'evaporate t)
     (overlay-put ov :prev (buffer-substring-no-properties
@@ -621,8 +621,7 @@ Create the annot content directory if it does not exist."
   "Recover an overlay."
   (let* ((ov (make-overlay (annot-get-beg ov-plist)
                            (annot-get-end ov-plist)
-                           nil nil
-                           (equal (plist-get ov-plist :type) 'highlight))))
+                           nil t nil)))
     (dotimes (i (length ov-plist))
       (when (eq (logand i 1) 0)
         (overlay-put ov (nth i ov-plist) (nth (1+ i) ov-plist))))
