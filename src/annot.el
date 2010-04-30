@@ -100,7 +100,7 @@ tradeoff here."
   :type '(repeat (symbol :tag "Major mode"))
   :group 'annot)
 
-(defcustom annot-enable-symlinking nil
+(defcustom annot-enable-symlinking (member system-type '(gnu gnu/linux gnu/kfreebsd))
   "Whether to enable symlink support.
 Depending on your editing style, this makes annot more robust in
 reproducing annotations."
@@ -368,8 +368,16 @@ If `annot-md5-max-chars' is nil, no limit is imposed."
 
 
 (defsubst annot-highlight-p (ov)
-  "non-nil if an overlay `ov' is of type highlight."
+  "Non-nil if an overlay `ov' is of type highlight."
   (equal (overlay-get ov :type) 'highlight))
+
+
+(defsubst annot-find-highlight (ov-list)
+  "Find, if any, a highlight in a list of overlays."
+  (catch 'found
+    (dolist (ov ov-list)
+      (when (annot-highlight-p ov)
+        (throw 'found ov)))))
 
 
 (defun annot-create-new (text/image/region)
@@ -426,13 +434,12 @@ the region ends."
 
 
 (defun annot-get-annotation-at-point ()
-  "Get annotation \(equiv. overlay) at point, or if none found, 1+ point." 
-  (let ((p (point)) ovs)
-    (car (or (overlays-in p p)
-             (and
-              (setq ovs (overlays-in (max (point-min) (1- p)) p))
-              (annot-highlight-p (car ovs))
-              ovs)))))
+  "Get annotation or highlight \(equiv. overlay) at point."
+  (let ((p (point)))
+    (or (car (overlays-in p p))
+        ;; Relax by 1 point for highlights
+        (annot-find-highlight (overlays-in (max (point-min) (1- p)) p))
+        (annot-find-highlight (overlays-in p (min (point-max) (1+ p)))))))
 
 
 (defun annot-create-overlay (pos text/image)
@@ -550,7 +557,8 @@ previous filename, return delete the previous file."
         (condition-case error
             (progn
               (annot-save-content s annot-filename)
-              (when annot-enable-symlinking
+              (when (and annot-enable-symlinking
+                         (member system-type '(gnu gnu/linux gnu/kfreebsd)))
                 (annot-save-symlink md5 filename)))
           (error
            (warn "annot-save-annotations: %s" (error-message-string error)))))
