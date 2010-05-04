@@ -63,7 +63,6 @@
 ;;; Todo:
 
 ;; * Kill-ring support: `kill-region', `yank'
-;; * Primitive undo management.
 
 ;;; Code:
 
