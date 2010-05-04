@@ -490,9 +490,10 @@ the region ends."
 :bufname %S
 :annot-filename %S
 :modtime %S
+:md5-max-chars %S
 :annotations \(
 %s
-)))" md5 filename bufname annot-filename modtime ov-plists-s)))
+)))" md5 filename bufname annot-filename modtime annot-md5-max-chars ov-plists-s)))
 
 
 (defun annot-save-annotations ()
@@ -520,69 +521,72 @@ previous filename, return delete the previous file."
             (delete-file symlink)))))
    
    (t
-    (let* ((buffer (current-buffer))
-           (prev-md5 (plist-get annot-buffer-plist :md5))
-           (prev-filename (plist-get annot-buffer-plist :filename))
-           (md5 (annot-md5 buffer))
-           (filename (buffer-file-name))
-           (annot-filename (annot-get-annot-filename md5))
-           (modtime (or (plist-get annot-buffer-plist :modtime) (float-time)))
-           (bufname (buffer-name)) s)
-      ;; Update ((:beg/:end)|:pos) and :prev/:next of each overlay
-      (dolist (ov annot-buffer-overlays)
-        (let ((beg (overlay-start ov))
-              (end (overlay-end ov)))
-          (if (annot-highlight-p ov)
+    (save-restriction
+      (widen)    ;; in case narrowing is in effect.
+      (let* ((buffer (current-buffer))
+             (prev-md5 (plist-get annot-buffer-plist :md5))
+             (prev-filename (plist-get annot-buffer-plist :filename))
+             (md5 (annot-md5 buffer))
+             (filename (buffer-file-name))
+             (annot-filename (annot-get-annot-filename md5))
+             (modtime (or (plist-get annot-buffer-plist :modtime) (float-time)))
+             (bufname (buffer-name)) s)
+        ;; Update ((:beg/:end)|:pos) and :prev/:next of each overlay
+        (dolist (ov annot-buffer-overlays)
+          (let ((beg (overlay-start ov))
+                (end (overlay-end ov)))
+            (when (and beg end)    ;; avoid a rare case where overlay-start or overlay-end is nil.
+              (if (annot-highlight-p ov)
+                  (progn
+                    (overlay-put ov :beg beg)
+                    (overlay-put ov :end end))
+                (overlay-put ov :pos end))
+              (overlay-put ov :prev
+                           (buffer-substring-no-properties
+                            (max (point-min) (- beg annot-subsequence-length)) beg))
+              (overlay-put ov :next
+                           (buffer-substring-no-properties
+                            end (min (point-max) (+ end annot-subsequence-length)))))))
+        
+        ;; Delete previous symlink, if any, before creating one.
+        (when (and prev-md5 prev-filename (not (string= prev-md5 md5)))
+          (if (file-symlink-p (annot-get-symlink prev-filename))
+              (delete-file (annot-get-symlink prev-filename))))
+        
+        ;; Get the S-expression and save the annotations if it is a file-buffer.
+        ;; It is possible to load annotations for non-file-buffer, but it is
+        ;; not supported yet just to play safe.
+        (when filename
+          (setq s (annot-format-overlays md5 filename bufname annot-filename modtime))
+          (condition-case error
               (progn
-                (overlay-put ov :beg beg)
-                (overlay-put ov :end end))
-            (overlay-put ov :pos end))
-          (overlay-put ov :prev
-                       (buffer-substring-no-properties
-                        (max (point-min) (- beg annot-subsequence-length)) beg))
-          (overlay-put ov :next
-                       (buffer-substring-no-properties
-                        end (min (point-max) (+ end annot-subsequence-length))))))
-      
-      ;; Delete previous symlink, if any, before creating one.
-      (when (and prev-md5 prev-filename (not (string= prev-md5 md5)))
-        (if (file-symlink-p (annot-get-symlink prev-filename))
-            (delete-file (annot-get-symlink prev-filename))))
-      
-      ;; Get the S-expression and save the annotations if it is a file-buffer.
-      ;; It is possible to load annotations for non-file-buffer, but it is
-      ;; not supported yet just to play safe.
-      (when filename
-        (setq s (annot-format-overlays md5 filename bufname annot-filename modtime))
-        (condition-case error
-            (progn
-              (annot-save-content s annot-filename)
-              (when (and annot-enable-symlinking
-                         (member system-type '(gnu gnu/linux gnu/kfreebsd)))
-                (annot-save-symlink md5 filename)))
-          (error
-           (warn "annot-save-annotations: %s" (error-message-string error)))))
-      
-      ;; Update `annot-buffer-plist'
-      (dolist (e '(md5 filename bufname annot-filename modtime))
-        (setq annot-buffer-plist
-              (plist-put annot-buffer-plist
-                         (intern (format ":%S" e)) (symbol-value e))))
-      
-      ;; If md5 doesn't match the previous one, and both files
-      ;; refer to the same file, delete the old annotation file.
-      ;; In the case of
-      ;; $ cp a b ; emacs b   # then modify b and maybe add/edit/remove annotation/highlight.
-      ;; we still want to keep annotations for a (and b).
-      ;; On the other hand, we do not want to keep obsolete annotations
-      ;; if prev and current versions both point to the same file.
-      (when (and prev-md5
-                 (not (string= prev-md5 md5))
-                 (string= prev-filename filename))
-        (let ((old-annot-filename (annot-get-annot-filename prev-md5)))
-          (if (file-readable-p old-annot-filename)
-              (delete-file old-annot-filename))))
-      annot-filename))))
+                (annot-save-content s annot-filename)
+                (when (and annot-enable-symlinking
+                           (member system-type '(gnu gnu/linux gnu/kfreebsd)))
+                  (annot-save-symlink md5 filename)))
+            (error
+             (warn "annot-save-annotations: %s" (error-message-string error)))))
+        
+        ;; Update `annot-buffer-plist'
+        (dolist (e '(md5 filename bufname annot-filename modtime))
+          (setq annot-buffer-plist
+                (plist-put annot-buffer-plist
+                           (intern (format ":%S" e)) (symbol-value e))))
+        
+        ;; If md5 doesn't match the previous one, and both files
+        ;; refer to the same file, delete the old annotation file.
+        ;; In the case of
+        ;; $ cp a b ; emacs b   # then modify b and maybe add/edit/remove annotation/highlight.
+        ;; we still want to keep annotations for a (and b).
+        ;; On the other hand, we do not want to keep obsolete annotations
+        ;; if prev and current versions both point to the same file.
+        (when (and prev-md5
+                   (not (string= prev-md5 md5))
+                   (string= prev-filename filename))
+          (let ((old-annot-filename (annot-get-annot-filename prev-md5)))
+            (if (file-readable-p old-annot-filename)
+                (delete-file old-annot-filename))))
+        annot-filename)))))
 
 
 (defun annot-save-content (content annot-filename)
@@ -770,7 +774,7 @@ Only annotation files use this function internally."
     (let (last-ov s s-exp)
       (when (and annot-buffer-overlays
                  (setq last-ov (annot-argmax annot-buffer-overlays
-                                             (lambda (ov) (overlay-start ov))))
+                                             (lambda (ov) (or (overlay-start ov) 1))))
                  (setq s (overlay-get last-ov 'before-string))
                  (string-match "\\` *after-save: *\\(.+\\)" s))
         (message "Evaluating: %s"
