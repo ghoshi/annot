@@ -770,15 +770,25 @@ Only annotation files use this function internally."
     ;; Let's make it a rule that if the current buffer is modified and the last
     ;; annotation in the buffer is of the form "after-save: <s-exp>", then
     ;; evaluate <s-exp> just after save-buffer.
-    (let (last-ov s s-exp)
+    ;; Let's make aonother rule that if the current buffer is modified and the last
+    ;; annotation in the buffer is of the form "$ <shell-command>", then
+    ;; execute the <shell-command> with `shell-command-to-string'.
+    ;; This means you can either have "after-save" rule or "$" rule at the end, if any.
+    (let (last-ov s s-exp command)
       (when (and annot-buffer-overlays
                  (setq last-ov (annot-argmax annot-buffer-overlays
                                              (lambda (ov) (or (overlay-start ov) 1))))
-                 (setq s (overlay-get last-ov 'before-string))
-                 (string-match "\\` *after-save: *\\(.+\\)" s))
-        (message "Evaluating: %s"
-                 (setq s-exp (match-string-no-properties 1 s)))
-        (eval (read s-exp)))))
+                 (setq s (overlay-get last-ov 'before-string)))
+        (cond
+         ;; the "after-save" rule
+         ((string-match "\\` *after-save: *\\((.+\\)" s)
+          (message "Evaluating: %s"
+                   (setq s-exp (match-string-no-properties 1 s)))
+          (eval (read s-exp)))
+         ;; the "$" rule
+         ((string-match "\\` *\\$ *\\([[:graph:]].*\\)" s)
+          (message "$ %s" (setq command (match-string-no-properties 1 s)))
+          (message (shell-command-to-string command)))))))
   (setq annot-buffer-modified-p nil))
 (add-hook 'after-save-hook 'annot-after-save-hook)
 (add-hook 'find-file-hook 'annot-load-annotations)
