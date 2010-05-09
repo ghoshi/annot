@@ -118,6 +118,13 @@ annotation's position."
   :type 'string
   :group 'annot)
 
+(defcustom annot-execute-last-sexp-p nil
+  "If enabled, execute the sexp specified in the last annotation.
+It has to be of the form: (<existing-function> ...)."
+  :type 'boolean
+  :group 'annot)
+
+
 (defface annot-text-face
   '((((class color) (background light)) (:foreground "red" :background "yellow"))
     (((class color) (background dark)) (:foreground "red" :background "white")))
@@ -781,11 +788,23 @@ Only annotation files use this function internally."
                  (setq s (overlay-get last-ov 'before-string)))
         (cond
          ;; the "after-save" rule
+         ;; Example: after-save: (message "yellow")
          ((string-match "\\` *after-save: *\\((.+\\)" s)
           (message "Evaluating: %s"
                    (setq s-exp (match-string-no-properties 1 s)))
           (eval (read s-exp)))
+         ;; (<existing-function> ...) rule (experimental)
+         ;; This rule is somewhat controversial and so is disabled by default.
+         ;; Example: (message "yellow")
+         ((and
+           annot-execute-last-sexp-p
+           (string-match "\\` *\\((\\([[:graph:]]+\\).*)\\) *\\'" s))
+          (when (fboundp (intern (match-string-no-properties 2 s)))
+            (message "Evaluating: %s"
+                     (setq s-exp (match-string-no-properties 1 s)))
+            (eval (read s-exp))))
          ;; the "$" rule
+         ;; Example: $ scp annot.el $host:/tmp/
          ((string-match "\\` *\\$ *\\([[:graph:]].*\\)" s)
           (message "$ %s" (setq command (match-string-no-properties 1 s)))
           (message (shell-command-to-string command)))))))
