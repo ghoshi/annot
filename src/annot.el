@@ -792,7 +792,8 @@ Only annotation files use this function internally."
          ((string-match "\\` *after-save: *\\((.+\\)" s)
           (message "Evaluating: %s"
                    (setq s-exp (match-string-no-properties 1 s)))
-          (eval (read s-exp)))
+          (eval (read s-exp))
+          (message "Finished."))
          ;; (<existing-function> ...) rule (experimental)
          ;; This rule is somewhat controversial and so is disabled by default.
          ;; Example: (message "yellow")
@@ -802,11 +803,14 @@ Only annotation files use this function internally."
           (when (fboundp (intern (match-string-no-properties 2 s)))
             (message "Evaluating: %s"
                      (setq s-exp (match-string-no-properties 1 s)))
-            (eval (read s-exp))))
+            (eval (read s-exp))
+            (message "Finished.")))
          ;; the "$" rule
          ;; Example: $ scp annot.el $host:/tmp/
          ((string-match "\\` *\\$ *\\([[:graph:]].*\\)" s)
-          (message "$ %s" (setq command (match-string-no-properties 1 s)))
+          (setq command (replace-regexp-in-string "%s\\b" (buffer-name)
+                                                  (match-string-no-properties 1 s)))
+          (message "%s %s" (if (= (user-uid) 0) "#" "$" ) command)
           (message (shell-command-to-string command)))))))
   (setq annot-buffer-modified-p nil))
 (add-hook 'after-save-hook 'annot-after-save-hook)
