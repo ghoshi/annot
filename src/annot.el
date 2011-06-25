@@ -1,6 +1,6 @@
 ;;; annot.el --- a global annotator/highlighter for GNU Emacs
 
-;; Copyright (C) 2010 tkykhs
+;; Copyright (C) 2010, 2011 tkykhs
 
 ;; Author:     tkykhs <tkykhs@gmail.com>
 ;; Maintainer: tkykhs
@@ -61,8 +61,6 @@
 ;; * `annot-add-image' - insert an image at point.
 
 ;;; Todo:
-
-;; * Kill-ring support: `kill-region', `yank'
 
 ;;; Code:
 
@@ -161,13 +159,13 @@ separately.")
 
 ;;;; User commands.
 
-(defun annot-add (&optional text/image)
+(defun annot-add (&optional text/image/region)
   "Add an annotation on the current point.
 If a marked region is present, highlight it."
   (interactive)
   (let* ((text/image/region (if (region-active-p)
                                 `(,(region-beginning) . ,(region-end))
-                              (or text/image
+                              (or text/image/region
                                   (read-string "Annotation: "))))
          (ov-list (annot-create-new text/image/region)))
     (when ov-list
@@ -623,7 +621,6 @@ Create the annot content directory if it does not exist."
     (make-backup-file-name (expand-file-name filename)))))
 
 
-
 (defsubst annot-get-beg (ov-plist)
   "Get the starting point of an annotation represented by `ov-plist'." 
   (or (plist-get ov-plist :beg)
@@ -816,10 +813,106 @@ Only annotation files use this function internally."
 (add-hook 'after-save-hook 'annot-after-save-hook)
 (add-hook 'find-file-hook 'annot-load-annotations)
 
+
 (defadvice delete-region (before annot-delete-region activate)
   "Enable deletion of annotations within the specified region."
-  (annot-delete-annotations-region start end))
+  (dolist (ov (overlays-in start end))
+    (annot-remove ov t)))
 
+
+;;; kill/yank (copy/paste) support
+
+(defmacro annot-without-modifying-buffer (&rest body)
+  (let ((tmp-var (make-symbol "buf-modified-p")))
+    `(let ((,tmp-var (buffer-modified-p)))
+       (unwind-protect
+           (progn ,@body)
+         (unless ,tmp-var (set-buffer-modified-p nil))))))
+
+(defun annot-add-annots-to-text (r-beg r-end)
+  "Add text-property representation of annotations/highlights to
+text within the region. It does so by appending `annot-exists'
+and `annot-positions' text properties at the beginning of the
+region; it also appends, for each annot overlay, `annot' text
+property, representing each annot overlay."
+  (interactive "r")
+  (let* ((ov-list (overlays-in r-beg r-end))
+         (ov-exists (> (length ov-list) 0))
+         (offset r-beg)
+         annot-positions)
+    (annot-without-modifying-buffer
+     (dolist (ov ov-list)
+       (let ((ov-start (overlay-start ov))
+             (ov-plist (overlay-properties ov)))
+         (when
+             ;; Change position so that each position is relative to 'offset'
+             (or
+              (and (plist-get ov-plist :beg)
+                   (plist-get ov-plist :end)
+                   (equal (plist-get ov-plist :type) 'highlight)
+                   (plist-put ov-plist :beg (- (plist-get ov-plist :beg) offset))
+                   (plist-put ov-plist :end (- (plist-get ov-plist :end) offset)))
+              (and (plist-get ov-plist :pos)
+                   (member (plist-get ov-plist :type) '(text image))
+                   (plist-get ov-plist 'before-string)
+                   (plist-put ov-plist :pos (- (plist-get ov-plist :pos) offset))))
+           ;; Add text property for this particular ov
+           (add-text-properties
+            ov-start
+            (min (point-max) (1+ ov-start))
+            (list 'annot ov-plist))
+           (push (- ov-start offset) annot-positions))))
+     (when ov-exists
+       (add-text-properties
+        r-beg (min (point-max) (1+ r-beg))
+        (list 'annot-exists t
+              'annot-positions annot-positions))))))
+
+(defadvice kill-region (around annot-kill-region activate)
+  "annot support for kill-region."
+  (annot-add-annots-to-text beg end)
+  ad-do-it)
+
+(defadvice kill-ring-save (around annot-kill-ring-save activate)
+  "annot support for kill-ring-save."
+  (annot-add-annots-to-text beg end)
+  ad-do-it)
+
+(defadvice yank (around annot-yank activate)
+  "annot support for yank.
+This advice interprets text properties appended by `annot-add-annots-to-text'
+and create, for each annot text property, an annot overlay."
+  (let ((annot-yank-start (point)))
+    ad-do-it
+    ;; Do this annot yank stuff only if annot-exists is at the current
+    ;; point.
+    (when (get-text-property annot-yank-start 'annot-exists)
+      (save-excursion
+        (let ((offset annot-yank-start)
+              (annot-positions (get-text-property annot-yank-start 'annot-positions)))
+          (dolist (annot-pos annot-positions)
+            (let* ((ov-plist (get-text-property (+ annot-pos offset) 'annot))
+                   (ov-type (plist-get ov-plist :type))
+                   s)
+              (when ov-plist
+                (cond
+                 ((equal ov-type 'highlight)
+                  (annot-add `(,(+ annot-yank-start (plist-get ov-plist :beg))
+                               . ,(+ annot-yank-start (plist-get ov-plist :end)))))
+                 ((member ov-type '(text image))
+                  (goto-char (+ offset annot-pos))
+                  (when (setq s (plist-get ov-plist 'before-string))
+                    (annot-add s)))))
+              ;; Remove annot text property added by annot-add-annots-to-text.
+              (remove-text-properties (+ annot-pos offset)
+                                      (min (point-max) (1+ (+ annot-pos offset)))
+                                      '(annot nil))))
+          ;; Lastly, remove annot-exists and annot-positions at the start of
+          ;; yank'ed text.
+          (remove-text-properties offset
+                                  (min (point-max) (1+ offset))
+                                  '(annot-exists nil annot-positions nil))))))
+  ad-return-value)
 
 (provide 'annot)
 ;;; annot.el ends here
