@@ -46,7 +46,7 @@
 ;; 
 ;; Keybindings:
 ;;
-;; * [C-x a]    -  add a new annotation/highlight or edit an existing annotation/highlight.
+;; * [C-x a]    -  add a new annotation/highlight or edit an existing annotation on point.
 ;;                 You can also use [C-x C-a]. (annot-edit/add)
 ;; * [C-x r]    -  remove annotation at point. (annot-remove)
 ;; * [C-x w]    -  insert an image at point. (annot-add-image)
@@ -226,7 +226,7 @@ If a regioin is specified, remove all annotations and highlights within it."
         (deactivate-mark t)    ;; Avoid endless recursion.
         (annot-delete-annotations-region beg end))
     (let ((ov (or ov (annot-get-annotation-at-point))))
-      (when ov
+      (when (and ov (overlay-get ov :type))
         (setq annot-buffer-overlays (delq ov annot-buffer-overlays))
         (delete-overlay ov)
         (annot-save-annotations)
@@ -790,7 +790,7 @@ Only annotation files use this function internally."
           (message "Evaluating: %s"
                    (setq s-exp (match-string-no-properties 1 s)))
           (eval (read s-exp))
-          (message "Finished."))
+          (message "Finished evaluating: %s" s-exp))
          ;; (<existing-function> ...) rule (experimental)
          ;; This rule is somewhat controversial and so is disabled by default.
          ;; Example: (message "yellow")
@@ -801,13 +801,13 @@ Only annotation files use this function internally."
             (message "Evaluating: %s"
                      (setq s-exp (match-string-no-properties 1 s)))
             (eval (read s-exp))
-            (message "Finished.")))
+            (message "Finished evaluating: %s" s-exp)))
          ;; the "$" rule
          ;; Example: $ scp annot.el $host:/tmp/
          ((string-match "\\` *\\$ *\\([[:graph:]].*\\)" s)
           (setq command (replace-regexp-in-string "%s\\b" (buffer-name)
                                                   (match-string-no-properties 1 s)))
-          (message "%s %s" (if (= (user-uid) 0) "#" "$" ) command)
+          (message "%s %s" (if (= (user-uid) 0) "#" "$") command)
           (message (shell-command-to-string command)))))))
   (setq annot-buffer-modified-p nil))
 (add-hook 'after-save-hook 'annot-after-save-hook)
@@ -817,7 +817,8 @@ Only annotation files use this function internally."
 (defadvice delete-region (before annot-delete-region activate)
   "Enable deletion of annotations within the specified region."
   (dolist (ov (overlays-in start end))
-    (annot-remove ov t)))
+    (when (overlay-get ov :type)
+      (annot-remove ov t))))
 
 
 ;;; kill/yank (copy/paste) support
