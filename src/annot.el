@@ -836,48 +836,46 @@ text within the region. It does so by appending `annot-exists'
 and `annot-positions' text properties at the beginning of the
 region; it also appends, for each annot overlay, `annot' text
 property, representing each annot overlay."
-  (interactive "r")
-  (let* ((ov-list (overlays-in r-beg r-end))
-         (ov-exists (> (length ov-list) 0))
-         (offset r-beg)
-         annot-positions)
-    (annot-without-modifying-buffer
-     (dolist (ov ov-list)
-       (let ((ov-start (overlay-start ov))
-             (ov-plist (overlay-properties ov)))
-         (when
-             ;; Change position so that each position is relative to 'offset'
-             (or
-              (and (plist-get ov-plist :beg)
-                   (plist-get ov-plist :end)
-                   (equal (plist-get ov-plist :type) 'highlight)
-                   (plist-put ov-plist :beg (- (plist-get ov-plist :beg) offset))
-                   (plist-put ov-plist :end (- (plist-get ov-plist :end) offset)))
-              (and (plist-get ov-plist :pos)
-                   (member (plist-get ov-plist :type) '(text image))
-                   (plist-get ov-plist 'before-string)
-                   (plist-put ov-plist :pos (- (plist-get ov-plist :pos) offset))))
-           ;; Add text property for this particular ov
-           (add-text-properties
-            ov-start
-            (min (point-max) (1+ ov-start))
-            (list 'annot ov-plist))
-           (push (- ov-start offset) annot-positions))))
-     (when ov-exists
-       (add-text-properties
-        r-beg (min (point-max) (1+ r-beg))
-        (list 'annot-exists t
-              'annot-positions annot-positions))))))
+  (unless buffer-read-only
+    (let* ((ov-list (overlays-in r-beg r-end))
+           (ov-exists (> (length ov-list) 0))
+           (offset r-beg)
+           annot-positions)
+      (annot-without-modifying-buffer
+       (dolist (ov ov-list)
+         (let ((ov-start (overlay-start ov))
+               (ov-plist (overlay-properties ov)))
+           (when
+               ;; Change position so that each position is relative to 'offset'
+               (or
+                (and (plist-get ov-plist :beg)
+                     (plist-get ov-plist :end)
+                     (equal (plist-get ov-plist :type) 'highlight)
+                     (plist-put ov-plist :beg (- (plist-get ov-plist :beg) offset))
+                     (plist-put ov-plist :end (- (plist-get ov-plist :end) offset)))
+                (and (plist-get ov-plist :pos)
+                     (member (plist-get ov-plist :type) '(text image))
+                     (plist-get ov-plist 'before-string)
+                     (plist-put ov-plist :pos (- (plist-get ov-plist :pos) offset))))
+             ;; Add text property for this particular ov
+             (add-text-properties
+              ov-start
+              (min (point-max) (1+ ov-start))
+              (list 'annot ov-plist))
+             (push (- ov-start offset) annot-positions))))
+       (when ov-exists
+         (add-text-properties
+          r-beg (min (point-max) (1+ r-beg))
+          (list 'annot-exists t
+              'annot-positions annot-positions)))))))
 
-(defadvice kill-region (around annot-kill-region activate)
+(defadvice kill-region (before annot-kill-region activate)
   "annot support for kill-region."
-  (annot-add-annots-to-text beg end)
-  ad-do-it)
+  (annot-add-annots-to-text beg end))
 
-(defadvice kill-ring-save (around annot-kill-ring-save activate)
+(defadvice kill-ring-save (before annot-kill-ring-save activate)
   "annot support for kill-ring-save."
-  (annot-add-annots-to-text beg end)
-  ad-do-it)
+  (annot-add-annots-to-text beg end))
 
 (defadvice yank (around annot-yank activate)
   "annot support for yank.
