@@ -844,19 +844,17 @@ property, representing each annot overlay."
       (annot-without-modifying-buffer
        (dolist (ov ov-list)
          (let ((ov-start (overlay-start ov))
+               (ov-end (overlay-end ov))
                (ov-plist (overlay-properties ov)))
            (when
                ;; Change position so that each position is relative to 'offset'
                (or
-                (and (plist-get ov-plist :beg)
-                     (plist-get ov-plist :end)
-                     (equal (plist-get ov-plist :type) 'highlight)
-                     (plist-put ov-plist :beg (- (plist-get ov-plist :beg) offset))
-                     (plist-put ov-plist :end (- (plist-get ov-plist :end) offset)))
-                (and (plist-get ov-plist :pos)
-                     (member (plist-get ov-plist :type) '(text image))
+                (and (equal (plist-get ov-plist :type) 'highlight)
+                     (plist-put ov-plist :beg (- ov-start offset))
+                     (plist-put ov-plist :end (- ov-end offset)))
+                (and (member (plist-get ov-plist :type) '(text image))
                      (plist-get ov-plist 'before-string)
-                     (plist-put ov-plist :pos (- (plist-get ov-plist :pos) offset))))
+                     (plist-put ov-plist :pos (- ov-start offset))))
              ;; Add text property for this particular ov
              (add-text-properties
               ov-start
