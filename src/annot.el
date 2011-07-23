@@ -865,15 +865,20 @@ property, representing each annot overlay."
          (add-text-properties
           r-beg (min (point-max) (1+ r-beg))
           (list 'annot-exists t
-              'annot-positions annot-positions)))))))
+                'annot-positions annot-positions)))))))
 
 (defadvice kill-region (before annot-kill-region activate)
   "annot support for kill-region."
-  (annot-add-annots-to-text beg end))
+  (let ((a (min beg end))
+        (b (max beg end)))
+    (annot-add-annots-to-text a b)
+    (annot-delete-annotations-region a b)))
 
 (defadvice kill-ring-save (before annot-kill-ring-save activate)
   "annot support for kill-ring-save."
-  (annot-add-annots-to-text beg end))
+  (let ((a (min beg end))
+        (b (max beg end)))
+    (annot-add-annots-to-text a b)))
 
 (defadvice yank (around annot-yank activate)
   "annot support for yank.
