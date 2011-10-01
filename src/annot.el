@@ -282,6 +282,38 @@ the file or not."
                           comment-end)))))))
 
 
+(defun annot-goto-previous ()
+  "Go to the previous annot overlay from the current point.
+If any is found, return t; nil otherwise."
+  (interactive)
+  (let (pt ov)
+    (catch 'finished
+      (while (< (point-min)
+                (setq pt (previous-overlay-change (point))))
+        (goto-char pt)
+        (setq ov (car (overlays-in pt (1+ pt))))
+        (when (and ov
+                   (member (overlay-get ov :type)
+                           '(text highlight image)))
+          (throw 'finished t))))))
+
+
+(defun annot-goto-next ()
+  "Go to the next annot overlay begging from the current point.
+If any is found, return t; nil otherwise."
+  (interactive)
+  (let (pt ov)
+    (catch 'finished
+      (while (< (setq pt (next-overlay-change (point)))
+                (point-max))
+        (goto-char pt)
+        (setq ov (car (overlays-in pt (1+ pt))))
+        (when (and ov
+                   (member (overlay-get ov :type)
+                           '(text highlight image)))
+          (throw 'finished t))))))
+
+
 ;;;; Indirect buffer functions.
 ;; These are functions for synching up with an indirect buffer's annotations
 ;; (but not the oppositve - i.e. upward direction only).  This supports no more
