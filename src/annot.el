@@ -282,9 +282,11 @@ the file or not."
                           comment-end)))))))
 
 
-(defun annot-goto-previous ()
+(defun annot-goto-previous (&optional annot-types)
   "Go to the previous annot overlay from the current point.
-If any is found, return t; nil otherwise."
+If any is found, return t; nil otherwise. Specify `annot-types'
+as a list if you want specific types of annotation to be
+captured."
   (interactive)
   (let (pt ov)
     (catch 'finished
@@ -294,13 +296,16 @@ If any is found, return t; nil otherwise."
         (setq ov (car (overlays-in pt (1+ pt))))
         (when (and ov
                    (member (overlay-get ov :type)
-                           '(text highlight image)))
+                           (or (and (listp annot-types) annot-types)
+                               '(text highlight image))))
           (throw 'finished t))))))
 
 
-(defun annot-goto-next ()
-  "Go to the next annot overlay begging from the current point.
-If any is found, return t; nil otherwise."
+(defun annot-goto-next (&optional annot-types)
+  "Go to the next annot overlay beginning from the current point.
+If any is found, return t; nil otherwise. Specify `annot-types'
+as a list if you want specific types of annotation to be
+captured."
   (interactive)
   (let (pt ov)
     (catch 'finished
@@ -310,7 +315,8 @@ If any is found, return t; nil otherwise."
         (setq ov (car (overlays-in pt (1+ pt))))
         (when (and ov
                    (member (overlay-get ov :type)
-                           '(text highlight image)))
+                           (or (and (listp annot-types) annot-types)
+                               '(text highlight image))))
           (throw 'finished t))))))
 
 
