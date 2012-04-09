@@ -854,7 +854,7 @@ Only annotation files use this function internally."
           (setq command (replace-regexp-in-string "%s\\b" (buffer-name)
                                                   (match-string-no-properties 1 s)))
           (message "%s %s" (if (= (user-uid) 0) "#" "$") command)
-          (message (if annot-prefer-eshell
+          (message (if (and annot-prefer-eshell (featurep 'eshell))
                        (eshell-command-result command)
                      (shell-command-to-string command))))))))
   (setq annot-buffer-modified-p nil))
