@@ -122,6 +122,10 @@ It has to be of the form: (<existing-function> ...)."
   :type 'boolean
   :group 'annot)
 
+(defcustom annot-prefer-eshell nil
+  "If enabled, run and obtain result through eshell instead of a shell."
+  :type 'boolean
+  :group 'annot)
 
 (defface annot-text-face
   '((((class color) (background light)) (:foreground "red" :background "yellow"))
@@ -298,7 +302,9 @@ captured."
                    (member (overlay-get ov :type)
                            (or (and (listp annot-types) annot-types)
                                '(text highlight image))))
-          (throw 'finished t))))))
+          (throw 'finished t)))
+      (message "No previous annot found.")
+      nil)))
 
 
 (defun annot-goto-next (&optional annot-types)
@@ -317,7 +323,9 @@ captured."
                    (member (overlay-get ov :type)
                            (or (and (listp annot-types) annot-types)
                                '(text highlight image))))
-          (throw 'finished t))))))
+          (throw 'finished t)))
+      (message "No further annot found.")
+      nil)))
 
 
 ;;;; Indirect buffer functions.
@@ -846,7 +854,9 @@ Only annotation files use this function internally."
           (setq command (replace-regexp-in-string "%s\\b" (buffer-name)
                                                   (match-string-no-properties 1 s)))
           (message "%s %s" (if (= (user-uid) 0) "#" "$") command)
-          (message (shell-command-to-string command)))))))
+          (message (if annot-prefer-eshell
+                       (eshell-command-result command)
+                     (shell-command-to-string command))))))))
   (setq annot-buffer-modified-p nil))
 (add-hook 'after-save-hook 'annot-after-save-hook)
 (add-hook 'find-file-hook 'annot-load-annotations)
