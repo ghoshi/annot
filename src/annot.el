@@ -274,7 +274,7 @@ TODO: Delete the new text annot upon `undo'."
                      (region-beginning) (region-end))
                   (deactivate-mark))))
       (kill-region (region-beginning) (region-end))
-      (annot-create-overlay (point) text))))
+      (annot-add text))))
 
 
 (defun annot-load-annotations ()
