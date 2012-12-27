@@ -1,6 +1,6 @@
 ;;; annot.el --- a global annotator/highlighter for GNU Emacs
 
-;; Copyright (C) 2010, 2011 tkykhs
+;; Copyright (C) 2010, 2011, 2012 tkykhs
 
 ;; Author:     tkykhs <tkykhs@gmail.com>
 ;; Maintainer: tkykhs
@@ -97,7 +97,8 @@ tradeoff here."
   :type '(repeat (symbol :tag "Major mode"))
   :group 'annot)
 
-(defcustom annot-enable-symlinking (member system-type '(gnu gnu/linux gnu/kfreebsd))
+(defcustom annot-enable-symlinking (eval-when-compile
+                                     (member system-type '(gnu gnu/linux gnu/kfreebsd)))
   "Whether to enable symlink support.
 Depending on your editing style, this makes annot more robust in
 reproducing annotations."
@@ -119,6 +120,11 @@ annotation's position."
 (defcustom annot-execute-last-sexp-p nil
   "If enabled, execute the sexp specified in the last annotation.
 It has to be of the form: (<existing-function> ...)."
+  :type 'boolean
+  :group 'annot)
+
+(defcustom annot-broader-removal-p nil
+  "If enabled, delete `annot-remove' removes non-annot overlays as well."
   :type 'boolean
   :group 'annot)
 
@@ -229,12 +235,15 @@ If a regioin is specified, remove all annotations and highlights within it."
             (end (region-end)))
         (deactivate-mark t)    ;; Avoid endless recursion.
         (annot-delete-annotations-region beg end))
-    (let ((ov (or ov (annot-get-annotation-at-point))))
-      (when (and ov (overlay-get ov :type))
+    (let* ((ov (or ov (annot-get-annotation-at-point)))
+           (annot-ov (and ov (overlay-get ov :type))))
+      (when (or annot-ov
+                (and annot-broader-removal-p ov))
         (setq annot-buffer-overlays (delq ov annot-buffer-overlays))
         (delete-overlay ov)
-        (annot-save-annotations)
-        (annot-base-buffer-remove)
+        (when annot-ov
+          (annot-save-annotations)
+          (annot-base-buffer-remove))
         (unless silent
           (message "Annotation removed."))))))
 
@@ -426,7 +435,9 @@ If `annot-md5-max-chars' is nil, no limit is imposed."
   "Find, if any, a highlight in a list of overlays."
   (catch 'found
     (dolist (ov ov-list)
-      (when (annot-highlight-p ov)
+      (when (if annot-broader-removal-p
+                ov
+              (annot-highlight-p ov))
         (throw 'found ov)))))
 
 
@@ -457,7 +468,8 @@ the region ends."
             (goto-char end)
             (save-excursion
               (when (re-search-backward "[[:graph:]]" beg t)
-                (push (annot-create-highlight-overlay a (match-end 0) modtime) ov-list))))))
+                (push (annot-create-highlight-overlay a (match-end 0) modtime)
+                      ov-list))))))
       ov-list))))
 
 
@@ -585,7 +597,8 @@ previous filename, return delete the previous file."
         (dolist (ov annot-buffer-overlays)
           (let ((beg (overlay-start ov))
                 (end (overlay-end ov)))
-            (when (and beg end)    ;; avoid a rare case where overlay-start or overlay-end is nil.
+            ;; avoid a rare case where overlay-start or overlay-end is nil.
+            (when (and beg end)
               (if (annot-highlight-p ov)
                   (progn
                     (overlay-put ov :beg beg)
@@ -763,7 +776,8 @@ Only annotation files use this function internally."
                 (setq invalid-found-p t))
               (let ((prev-string (plist-get ov-plist :prev))
                     (type (plist-get ov-plist :type)))
-                (goto-char (max (point-min) (- last-valid-point (length prev-string))))
+                (goto-char (max (point-min) (- last-valid-point
+                                               (length prev-string))))
                 (catch 'found
                   (while (search-forward prev-string nil t)
                     ;; Change beg/end points before validation.
