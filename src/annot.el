@@ -263,6 +263,20 @@ If a region is specified, a highlight annotation will be added or edited."
      (t (annot-add)))))
 
 
+(defun annot-convert ()
+  "Convert the text within a currently active region into an annot text annotation.
+TODO: Delete the new text annot upon `undo'."
+  (interactive)
+  (when (and (region-active-p)
+             (> (- (region-end) (region-beginning)) 0))
+    (let ((text (prog1
+                    (buffer-substring-no-properties
+                     (region-beginning) (region-end))
+                  (deactivate-mark))))
+      (kill-region (region-beginning) (region-end))
+      (annot-create-overlay (point) text))))
+
+
 (defun annot-load-annotations ()
   "Load the annotation file corresponding to the current buffer.
 If current `annot-buffer-overlays' looks newer \(which shouldn't
@@ -817,6 +831,7 @@ Only annotation files use this function internally."
 (define-key ctl-x-map "\C-a" 'annot-edit/add)
 (define-key ctl-x-map "r"    'annot-remove)
 (define-key ctl-x-map "w"    'annot-add-image)
+(define-key ctl-x-map "A"    'annot-convert)
 
 
 ;;;; Hooks and Advices.
