@@ -155,6 +155,9 @@ annotation's position in a file buffer.")
 (defconst annot-symlinks-dirname "symlinks"
   "Name of the annotation symlink directory.")
 
+(defconst annot-available-types '(text highlight image)
+  "A list of :type overlay properties that annot uses.")
+
 (defvar annot-buffer-overlays nil
   "List of overlays in the buffer.")
 (make-variable-buffer-local 'annot-buffer-overlays)
@@ -212,7 +215,7 @@ If a marked region is present, highlight it."
       (message "No annotation to edit at point."))
      ((region-active-p)
       (message "Highlight cannot be edited."))
-     (t 
+     (t
       (let ((text (read-string "Annotation: "
                                (annot-trim
                                 (substring-no-properties
@@ -320,11 +323,11 @@ captured."
       (while (< (point-min)
                 (setq pt (previous-overlay-change (point))))
         (goto-char pt)
-        (setq ov (car (overlays-in pt (1+ pt))))
+        (setq ov (car (annot-overlays-in pt (1+ pt))))
         (when (and ov
                    (member (overlay-get ov :type)
                            (or (and (listp annot-types) annot-types)
-                               '(text highlight image))))
+                               annot-available-types)))
           (throw 'finished t)))
       (message "No previous annot found.")
       nil)))
@@ -341,11 +344,11 @@ captured."
       (while (< (setq pt (next-overlay-change (point)))
                 (point-max))
         (goto-char pt)
-        (setq ov (car (overlays-in pt (1+ pt))))
+        (setq ov (car (annot-overlays-in pt (1+ pt))))
         (when (and ov
                    (member (overlay-get ov :type)
                            (or (and (listp annot-types) annot-types)
-                               '(text highlight image))))
+                               annot-available-types)))
           (throw 'finished t)))
       (message "No further annot found.")
       nil)))
@@ -455,6 +458,16 @@ If `annot-md5-max-chars' is nil, no limit is imposed."
         (throw 'found ov)))))
 
 
+(defsubst annot-overlays-in (beg end)
+  "Get a list of, not pure, but annot overlays between beg and end points."
+  (let (L)
+    (dolist (ov (overlays-in beg end))
+      (when (member (overlay-get ov :type)
+                    annot-available-types)
+        (push ov L)))
+    L))
+
+
 (defun annot-create-new (text/image/region)
   "Create a new list of overlay(s) depending of the content of `text/image/region'.
 In particular, a text highlight may yield multiple overlays depending on
@@ -512,10 +525,10 @@ the region ends."
 (defun annot-get-annotation-at-point ()
   "Get annotation or highlight \(equiv. overlay) at point."
   (let ((p (point)))
-    (or (car (overlays-in p p))
+    (or (car (annot-overlays-in p p))
         ;; Relax by 1 point for highlights
-        (annot-find-highlight (overlays-in (max (point-min) (1- p)) p))
-        (annot-find-highlight (overlays-in p (min (point-max) (1+ p)))))))
+        (annot-find-highlight (annot-overlays-in (max (point-min) (1- p)) p))
+        (annot-find-highlight (annot-overlays-in p (min (point-max) (1+ p)))))))
 
 
 (defun annot-create-overlay (pos text/image)
@@ -849,7 +862,7 @@ Only annotation files use this function internally."
     ;; Let's make it a rule that if the current buffer is modified and the last
     ;; annotation in the buffer is of the form "after-save: <s-exp>", then
     ;; evaluate <s-exp> just after save-buffer.
-    ;; Let's make aonother rule that if the current buffer is modified and the last
+    ;; Let's make another rule that if the current buffer is modified and the last
     ;; annotation in the buffer is of the form "$ <shell-command>", then
     ;; execute the <shell-command> with `shell-command-to-string'.
     ;; This means you can either have "after-save" rule or "$" rule at the end, if any.
@@ -893,9 +906,8 @@ Only annotation files use this function internally."
 
 (defadvice delete-region (before annot-delete-region activate)
   "Enable deletion of annotations within the specified region."
-  (dolist (ov (overlays-in start end))
-    (when (overlay-get ov :type)
-      (annot-remove ov t))))
+  (dolist (ov (annot-overlays-in start end))
+    (annot-remove ov t)))
 
 
 ;;; kill/yank (copy/paste) support
@@ -914,7 +926,7 @@ and `annot-positions' text properties at the beginning of the
 region; it also appends, for each annot overlay, `annot' text
 property, representing each annot overlay."
   (unless buffer-read-only
-    (let* ((ov-list (overlays-in r-beg r-end))
+    (let* ((ov-list (annot-overlays-in r-beg r-end))
            (ov-exists (> (length ov-list) 0))
            (offset r-beg)
            annot-positions)
