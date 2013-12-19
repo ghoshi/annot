@@ -1,6 +1,6 @@
 ;;; annot.el --- a global annotator/highlighter for GNU Emacs
 
-;; Copyright (C) 2010, 2011, 2012 tkykhs
+;; Copyright (C) 2010-2013 tkykhs
 
 ;; Author:     tkykhs <tkykhs@gmail.com>
 ;; Maintainer: tkykhs
@@ -98,7 +98,13 @@ tradeoff here."
   :group 'annot)
 
 (defcustom annot-enable-symlinking (eval-when-compile
-                                     (member system-type '(gnu gnu/linux gnu/kfreebsd)))
+                                     (member system-type '(gnu
+                                                           gnu/linux
+                                                           gnu/kfreebsd
+                                                           darwin
+                                                           cygwin
+                                                           berkeley-unix
+                                                           irix)))
   "Whether to enable symlink support.
 Depending on your editing style, this makes annot more robust in
 reproducing annotations."
@@ -651,8 +657,7 @@ previous filename, return delete the previous file."
           (condition-case error
               (progn
                 (annot-save-content s annot-filename)
-                (when (and annot-enable-symlinking
-                           (member system-type '(gnu gnu/linux gnu/kfreebsd)))
+                (when annot-enable-symlinking
                   (annot-save-symlink md5 filename)))
             (error
              (warn "annot-save-annotations: %s" (error-message-string error)))))
