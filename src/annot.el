@@ -130,7 +130,9 @@ It has to be of the form: (<existing-function> ...)."
   :group 'annot)
 
 (defcustom annot-broader-removal-p nil
-  "If enabled, delete `annot-remove' removes non-annot overlays as well."
+  "If enabled, `annot-remove' removes a non-annot overlay that
+happens to be on the current point. This is regardless of the
+existence of an annot-type overlay on the point."
   :type 'boolean
   :group 'annot)
 
@@ -244,17 +246,21 @@ If a regioin is specified, remove all annotations and highlights within it."
             (end (region-end)))
         (deactivate-mark t)    ;; Avoid endless recursion.
         (annot-delete-annotations-region beg end))
-    (let* ((ov (or ov (annot-get-annotation-at-point)))
-           (annot-ov (and ov (overlay-get ov :type))))
-      (when (or annot-ov
-                (and annot-broader-removal-p ov))
-        (setq annot-buffer-overlays (delq ov annot-buffer-overlays))
-        (delete-overlay ov)
-        (when annot-ov
-          (annot-save-annotations)
-          (annot-base-buffer-remove))
+    (let* ((annot-ov (or ov (annot-get-annotation-at-point))) ov p)
+      (when annot-ov
+        (setq annot-buffer-overlays (delq annot-ov annot-buffer-overlays))
+        (delete-overlay annot-ov)
+        (annot-save-annotations)
+        (annot-base-buffer-remove)
         (unless silent
-          (message "Annotation removed."))))))
+          (message "Annotation removed.")))
+      (when (and annot-broader-removal-p
+                 (setq ov (or
+                           (car (overlays-in (setq p (point)) p))
+                           ;; relax finding of an overlay
+                           (car (overlays-in (max (point-min) (1- p)) p))
+                           (car (overlays-in p (min (point-max) (1+ p)))))))
+        (delete-overlay ov)))))
 
 
 (defun annot-edit/add ()
@@ -458,9 +464,7 @@ If `annot-md5-max-chars' is nil, no limit is imposed."
   "Find, if any, a highlight in a list of overlays."
   (catch 'found
     (dolist (ov ov-list)
-      (when (if annot-broader-removal-p
-                ov
-              (annot-highlight-p ov))
+      (when (annot-highlight-p ov)
         (throw 'found ov)))))
 
 
