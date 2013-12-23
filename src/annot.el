@@ -178,6 +178,29 @@ separately.")
 (make-variable-buffer-local 'annot-buffer-plist)
 
 
+;;;; Macros
+
+(defmacro annot-with-message-suppression (&rest body)
+  "Suppress any incoming messages within `body' while keeping the
+currently displayed message, if any."
+  (let ((msg (make-symbol "msg-temp")))
+    `(let ((,msg (current-message))
+           (message-log-max nil))
+       (unwind-protect
+           (progn ,@body)
+         (if ,msg
+             (message ,msg)
+           (message nil))))))
+
+
+(defmacro annot-without-modifying-buffer (&rest body)
+  (let ((tmp-var (make-symbol "buf-modified-p")))
+    `(let ((,tmp-var (buffer-modified-p)))
+       (unwind-protect
+           (progn ,@body)
+         (unless ,tmp-var (set-buffer-modified-p nil))))))
+
+
 ;;;; User commands.
 
 (defun annot-add (&optional text/image/region)
@@ -301,12 +324,13 @@ the file or not."
   (unless (member major-mode annot-load-disabled-modes)
     (let ((current-md5 (annot-md5 (current-buffer)))
           filename)
-      (if (or (file-readable-p 
-               (setq filename (annot-get-annot-filename current-md5)))
-              ;; If md5 fails, try symlink.
-              (and (setq filename (annot-get-symlink (buffer-file-name)))
-                   (file-readable-p filename)))
-          (load-file filename)))))
+      (when (or (file-readable-p 
+                 (setq filename (annot-get-annot-filename current-md5)))
+                ;; If md5 fails, try symlink.
+                (and (setq filename (annot-get-symlink (buffer-file-name)))
+                     (file-readable-p filename)))
+        (annot-with-message-suppression
+         (load-file filename))))))
 
 
 (defun annot-to-comment ()
@@ -919,14 +943,7 @@ Only annotation files use this function internally."
     (annot-remove ov t)))
 
 
-;;; kill/yank (copy/paste) support
-
-(defmacro annot-without-modifying-buffer (&rest body)
-  (let ((tmp-var (make-symbol "buf-modified-p")))
-    `(let ((,tmp-var (buffer-modified-p)))
-       (unwind-protect
-           (progn ,@body)
-         (unless ,tmp-var (set-buffer-modified-p nil))))))
+;;;; Kill/yank (copy/paste) support
 
 (defun annot-add-annots-to-text (r-beg r-end)
   "Add text-property representation of annotations/highlights to
