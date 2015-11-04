@@ -3,7 +3,9 @@ annot.el - a global annotator/highlighter for GNU Emacs
 
 ### Introduction ###
 
-[![Video: annot.el at work](http://img.youtube.com/vi/cCIetEFzdvY/0.jpg)](http://www.youtube.com/watch?v=cCIetEFzdvY)
+Here is the video:
+
+<a href='http://www.youtube.com/watch?feature=player_embedded&v=cCIetEFzdvY' target='_blank'><img src='http://img.youtube.com/vi/cCIetEFzdvY/0.jpg' width='450' height=344 /></a>
 
 `annot.el' is a general (and scalable) annotation manager that works on GNU
 Emacs.  It lets you add/edit/remove annotations, highlights, or even annotated
