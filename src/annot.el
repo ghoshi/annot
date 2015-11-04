@@ -1,10 +1,10 @@
 ;;; annot.el --- a global annotator/highlighter for GNU Emacs
 
-;; Copyright (C) 2010-2013 tkykhs
+;; Copyright (C) 2010-2015 tkykhs
 
-;; Author:     tkykhs <tkykhs@gmail.com>
+;; Author:     tkykhs
 ;; Maintainer: tkykhs
-;; Created:    March 28, 2010
+;; Created on: March 28, 2010
 ;; Keywords:   convenience, frames, local, multimedia, terminals, tools
 
 ;; This file is not (yet) part of GNU Emacs.
@@ -26,13 +26,13 @@
 
 ;; Description:
 ;;
-;; `annot.el' is a general and scalable annotation manager that works on GNU
-;; Emacs.  It lets you add/remove/edit annotations and highlights on any file
-;; and manages them for later use. All annotations are stored separately for
-;; each annotated file and get reproduced when the file is opened again. You can
-;; even store annotations on non-editable files.  Because annot keeps track of
-;; md5 checksums of annotated files, annotations won't disappear even when file
-;; names are changed.
+;; `annot.el' is a general (and scalable) annotation manager that works on GNU
+;; Emacs.  It lets you add/edit/remove annotations, highlights, or even
+;; annotated images on any file and manages them for you.  All annotations are
+;; stored separately for each annotated file and get reproduced when the file is
+;; opened again. You can even store annotations on non-editable files.  Because
+;; annot keeps track of md5 checksums of annotated files, annotations won't
+;; disappear even when file names are changed.
 ;; 
 ;; Requirement:
 ;; 
@@ -118,9 +118,19 @@ annotation's position."
   :type 'boolean
   :group 'annot)
 
-(defcustom annot-image-directory "~/" 
+(defcustom annot-image-directory "~/"
   "Default image directory for `annot-add-image'."
   :type 'string
+  :group 'annot)
+
+(defcustom annot-save-exclusion-regexp "\\(\\`/tmp/\\)"
+  "Any \(annot-buffer-file-name) matching this expression is to
+be excluded from annots being saved under `annot-directory'.
+This is useful for cases when you are expected to annotate a file
+buffer only once, if ever. By default, `/tmp/' directory is
+excluded from annots being saved due to its temporalities in
+modern operating systems."
+  :type 'regexp
   :group 'annot)
 
 (defcustom annot-execute-last-sexp-p nil
@@ -138,6 +148,12 @@ existence of an annot-type overlay on the point."
 
 (defcustom annot-prefer-eshell nil
   "If enabled, run and obtain result through eshell instead of a shell."
+  :type 'boolean
+  :group 'annot)
+
+(defcustom annot-enable-fuf-support nil
+  "If enabled, enable annot's support of `fuf.el' \(fold-or-unfold), in which case,
+annot will save fuf's folding & unfolding states."
   :type 'boolean
   :group 'annot)
 
@@ -163,8 +179,10 @@ annotation's position in a file buffer.")
 (defconst annot-symlinks-dirname "symlinks"
   "Name of the annotation symlink directory.")
 
-(defconst annot-available-types '(text highlight image)
-  "A list of :type overlay properties that annot uses.")
+(defconst annot-available-types '(text highlight image ellipsis)
+  "A list of :type overlay properties that annot uses.
+`ellipsis' is not really used, unless you enable
+`annot-enable-fuf-support'.")
 
 (defvar annot-buffer-overlays nil
   "List of overlays in the buffer.")
@@ -207,9 +225,9 @@ currently displayed message, if any."
   "Add an annotation on the current point.
 If a marked region is present, highlight it."
   (interactive)
-  (let* ((text/image/region (if (region-active-p)
-                                `(,(region-beginning) . ,(region-end))
-                              (or text/image/region
+  (let* ((text/image/region (or text/image/region
+                                (if (region-active-p)
+                                    `(,(region-beginning) . ,(region-end))
                                   (read-string "Annotation: "))))
          (ov-list (annot-create-new text/image/region)))
     (when ov-list
@@ -277,7 +295,7 @@ If a regioin is specified, remove all annotations and highlights within it."
         (annot-base-buffer-remove)
         (unless silent
           (message "Annotation removed.")))
-      (when (and annot-broader-removal-p
+      (while (and annot-broader-removal-p
                  (setq ov (or
                            (car (overlays-in (setq p (point)) p))
                            ;; relax finding of an overlay
@@ -302,8 +320,7 @@ If a region is specified, a highlight annotation will be added or edited."
 
 
 (defun annot-convert ()
-  "Convert the text within a currently active region into an annot text annotation.
-TODO: Delete the new text annot upon `undo'."
+  "Convert the text within a currently active region into an annot text annotation."
   (interactive)
   (when (and (region-active-p)
              (> (- (region-end) (region-beginning)) 0))
@@ -324,10 +341,10 @@ the file or not."
   (unless (member major-mode annot-load-disabled-modes)
     (let ((current-md5 (annot-md5 (current-buffer)))
           filename)
-      (when (or (file-readable-p 
+      (when (or (file-readable-p
                  (setq filename (annot-get-annot-filename current-md5)))
                 ;; If md5 fails, try symlink.
-                (and (setq filename (annot-get-symlink (buffer-file-name)))
+                (and (setq filename (annot-get-symlink (annot-buffer-file-name)))
                      (file-readable-p filename)))
         (annot-with-message-suppression
          (load-file filename))))))
@@ -395,6 +412,7 @@ captured."
 ;; (but not the oppositve - i.e. upward direction only).  This supports no more
 ;; than single indirect buffer: multiple indirect buffers pointing to the same
 ;; base buffer may not be fully reflected.
+;; TODO: Use a macro for annot-base-* functions below.
 
 (defun annot-base-buffer-add (text/image/region)
   (let ((base-buffer (buffer-base-buffer)))
@@ -407,6 +425,9 @@ captured."
               (when ov-list
                 (dolist (ov ov-list)
                   (push ov annot-buffer-overlays))
+                ;; This saving, while it may seem to be unnecessary at first
+                ;; glance, is necessary since you may be mainly editing on the
+                ;; base buffer
                 (annot-save-annotations)))))))))
 
 
@@ -437,8 +458,16 @@ captured."
 
 ;;;; Internal functions.
 
+(defsubst annot-buffer-file-name ()
+  "Same as \(buffer-file-name) but is extended to be compatible
+with indirect buffers."
+  (buffer-file-name
+   (or (buffer-base-buffer)
+       (current-buffer))))
+
+
 (defsubst annot-trim (s)
-  "Trim non-graphic chars from both ends of string s." 
+  "Trim non-graphic chars from both ends of string s."
   (replace-regexp-in-string
    "\\`[^[:graph:]]+\\|[^[:graph:]]+\\'"  "" s))
 
@@ -459,7 +488,7 @@ captured."
 
 (defsubst annot-md5 (&optional buffer)
   "Get md5 of the buffer content with max chars `annot-md5-max-chars'.
-If `annot-md5-max-chars' is nil, no limit is imposed." 
+If `annot-md5-max-chars' is nil, no limit is imposed."
   (let ((buffer (or buffer (current-buffer))))
     (md5 buffer nil
          (if (null annot-md5-max-chars)
@@ -515,7 +544,8 @@ the region ends."
    ((listp text/image/region)
     (let ((beg (car text/image/region))
           (end (cdr text/image/region))
-          (modtime (float-time))  ov-list a b)
+          (modtime (float-time))
+          ov-list a b)
       (save-excursion
         (goto-char beg)
         (while (and
@@ -626,7 +656,7 @@ If the new filename \(or equivalently md5) is different from
 previous filename, return delete the previous file."
   (setq annot-buffer-plist
         (plist-put annot-buffer-plist :modtime (float-time)))
-  
+
   (cond
    ;; In case no annotations are left, delete the
    ;; associated annot file.
@@ -642,74 +672,78 @@ previous filename, return delete the previous file."
         (setq symlink (annot-get-symlink filename))
         (if (file-symlink-p symlink)
             (delete-file symlink)))))
-   
+
    (t
-    (save-restriction
-      (widen)    ;; in case narrowing is in effect.
-      (let* ((buffer (current-buffer))
-             (prev-md5 (plist-get annot-buffer-plist :md5))
-             (prev-filename (plist-get annot-buffer-plist :filename))
-             (md5 (annot-md5 buffer))
-             (filename (buffer-file-name))
-             (annot-filename (annot-get-annot-filename md5))
-             (modtime (or (plist-get annot-buffer-plist :modtime) (float-time)))
-             (bufname (buffer-name)) s)
-        ;; Update ((:beg/:end)|:pos) and :prev/:next of each overlay
-        (dolist (ov annot-buffer-overlays)
-          (let ((beg (overlay-start ov))
-                (end (overlay-end ov)))
-            ;; avoid a rare case where overlay-start or overlay-end is nil.
-            (when (and beg end)
-              (if (annot-highlight-p ov)
-                  (progn
-                    (overlay-put ov :beg beg)
-                    (overlay-put ov :end end))
-                (overlay-put ov :pos end))
-              (overlay-put ov :prev
-                           (buffer-substring-no-properties
-                            (max (point-min) (- beg annot-subsequence-length)) beg))
-              (overlay-put ov :next
-                           (buffer-substring-no-properties
-                            end (min (point-max) (+ end annot-subsequence-length)))))))
-        
-        ;; Delete previous symlink, if any, before creating one.
-        (when (and prev-md5 prev-filename (not (string= prev-md5 md5)))
-          (if (file-symlink-p (annot-get-symlink prev-filename))
-              (delete-file (annot-get-symlink prev-filename))))
-        
-        ;; Get the S-expression and save the annotations if it is a file-buffer.
-        ;; It is possible to load annotations for non-file-buffer, but it is
-        ;; not supported yet just to play safe.
-        (when filename
-          (setq s (annot-format-overlays md5 filename bufname annot-filename modtime))
-          (condition-case error
-              (progn
-                (annot-save-content s annot-filename)
-                (when annot-enable-symlinking
-                  (annot-save-symlink md5 filename)))
-            (error
-             (warn "annot-save-annotations: %s" (error-message-string error)))))
-        
-        ;; Update `annot-buffer-plist'
-        (dolist (e '(md5 filename bufname annot-filename modtime))
-          (setq annot-buffer-plist
-                (plist-put annot-buffer-plist
-                           (intern (format ":%S" e)) (symbol-value e))))
-        
-        ;; If md5 doesn't match the previous one, and both files
-        ;; refer to the same file, delete the old annotation file.
-        ;; In the case of
-        ;; $ cp a b ; emacs b   # then modify b and maybe add/edit/remove annotation/highlight.
-        ;; we still want to keep annotations for a (and b).
-        ;; On the other hand, we do not want to keep obsolete annotations
-        ;; if prev and current versions both point to the same file.
-        (when (and prev-md5
-                   (not (string= prev-md5 md5))
-                   (string= prev-filename filename))
-          (let ((old-annot-filename (annot-get-annot-filename prev-md5)))
-            (if (file-readable-p old-annot-filename)
-                (delete-file old-annot-filename))))
-        annot-filename)))))
+    (let ((filename (annot-buffer-file-name)))
+      ;; Only save annotations if the current buffer is a file-buffer whose
+      ;; (annot-buffer-file-name) does not match `annot-save-exclusion-regexp'.
+      ;; It is possible to save/load annotations for non-file-buffers, but it is
+      ;; not supported yet just to play safe.
+      (when (and filename
+                 (not (and annot-save-exclusion-regexp
+                           (string-match annot-save-exclusion-regexp filename))))
+        (save-restriction
+          (widen)    ;; in case narrowing is in effect.
+          (let* ((buffer (current-buffer))
+                 (prev-md5 (plist-get annot-buffer-plist :md5))
+                 (prev-filename (plist-get annot-buffer-plist :filename))
+                 (md5 (annot-md5 buffer))
+                 (annot-filename (annot-get-annot-filename md5))
+                 (modtime (or (plist-get annot-buffer-plist :modtime) (float-time)))
+                 (bufname (buffer-name)) s)
+            ;; Update ((:beg/:end)|:pos) and :prev/:next of each overlay
+            (dolist (ov annot-buffer-overlays)
+              (let ((beg (overlay-start ov))
+                    (end (overlay-end ov)))
+                ;; avoid a rare case where overlay-start or overlay-end is nil.
+                (when (and beg end)
+                  (if (annot-highlight-p ov)
+                      (progn
+                        (overlay-put ov :beg beg)
+                        (overlay-put ov :end end))
+                    (overlay-put ov :pos end))
+                  (overlay-put ov :prev
+                               (buffer-substring-no-properties
+                                (max (point-min) (- beg annot-subsequence-length)) beg))
+                  (overlay-put ov :next
+                               (buffer-substring-no-properties
+                                end (min (point-max) (+ end annot-subsequence-length)))))))
+
+            ;; Delete previous symlink, if any, before creating one.
+            (when (and prev-md5 prev-filename (not (string= prev-md5 md5)))
+              (if (file-symlink-p (annot-get-symlink prev-filename))
+                  (delete-file (annot-get-symlink prev-filename))))
+
+            ;; Get the S-expression and save the annotations
+            (setq s (annot-format-overlays md5 filename bufname annot-filename modtime))
+            (condition-case error
+                (progn
+                  (annot-save-content s annot-filename)
+                  (when annot-enable-symlinking
+                    (annot-save-symlink md5 filename)))
+              (error
+               (warn "annot-save-annotations: %s" (error-message-string error))))
+
+            ;; Update `annot-buffer-plist'
+            (dolist (e '(md5 filename bufname annot-filename modtime))
+              (setq annot-buffer-plist
+                    (plist-put annot-buffer-plist
+                               (intern (format ":%S" e)) (symbol-value e))))
+
+            ;; If md5 doesn't match the previous one, and both files
+            ;; refer to the same file, delete the old annotation file.
+            ;; In the case of
+            ;; $ cp a b ; emacs b   # then modify b and maybe add/edit/remove annotation/highlight.
+            ;; we still want to keep annotations for a (and b).
+            ;; On the other hand, we do not want to keep obsolete annotations
+            ;; if prev and current versions both point to the same file.
+            (when (and prev-md5
+                       (not (string= prev-md5 md5))
+                       (string= prev-filename filename))
+              (let ((old-annot-filename (annot-get-annot-filename prev-md5)))
+                (if (file-readable-p old-annot-filename)
+                    (delete-file old-annot-filename))))
+            annot-filename)))))))
 
 
 (defun annot-save-content (content annot-filename)
@@ -741,12 +775,12 @@ Create the annot content directory if it does not exist."
 
 
 (defsubst annot-get-beg (ov-plist)
-  "Get the starting point of an annotation represented by `ov-plist'." 
+  "Get the starting point of an annotation represented by `ov-plist'."
   (or (plist-get ov-plist :beg)
       (plist-get ov-plist :pos)))
 
 (defsubst annot-get-end (ov-plist)
-  "Get the end point of an annotation represented by `ov-plist'." 
+  "Get the end point of an annotation represented by `ov-plist'."
   (or (plist-get ov-plist :end)
       (plist-get ov-plist :pos)))
 
@@ -769,10 +803,13 @@ If `annot-enable-strict-integrity-checking' is non-nil, check
 the next-string as well."
   (let ((prev-string (plist-get ov-plist :prev))
         (beg (annot-get-beg ov-plist))
-        (end (annot-get-end ov-plist)))
+        (end (annot-get-end ov-plist))
+        (good-region-types (if annot-enable-fuf-support
+                               '(highlight ellipsis)
+                             '(highlight))))
     (and
      (<= end (point-max))
-     (if (equal (plist-get ov-plist :type) 'highlight)
+     (if (member (plist-get ov-plist :type) good-region-types)
          (< beg end)
        (> (length (plist-get ov-plist 'before-string)) 0))
      (string= prev-string
@@ -798,14 +835,14 @@ Only annotation files use this function internally."
               ;; If annot-buffer-overlays has updated modtime, ask.
               (y-or-n-p (concat "Modification time for stored annotations"
                                 " appears be older. Load them anyways? ")))
-      
+
       ;; If by any chance `annot-buffer-overlays' contains some overlays,
       ;; delete them all.
       (when annot-buffer-overlays
         (dolist (ov annot-buffer-overlays)
           (delete-overlay ov))
         (setq annot-buffer-overlays nil))
-      
+
       ;; Sort annotations/highlights by beg position.
       ;;
       ;; The following constraint would omit some extra computation. However,
@@ -820,7 +857,7 @@ Only annotation files use this function internally."
                               (lambda (op1 op2)
                                 (< (annot-get-beg op1)
                                    (annot-get-beg op2)))))
-      
+
       ;; Mmmkay, let's reproduce annotations.
       (save-excursion
         (let ((last-valid-point (point-min))
@@ -828,6 +865,16 @@ Only annotation files use this function internally."
           (dolist (ov-plist annotations)
             (cond
              ((and (null invalid-found-p) (annot-valid-p ov-plist))
+              ;;; FIXME: this is not exactly an elegant solution.
+              ;; Make fuf invisibility available globally.  fuf is more useful this
+              ;; way rather than creating a minor mode and hooking up the code
+              ;; below every single time.
+              (when (and annot-enable-fuf-support
+                         (eq (plist-get ov-plist 'invisible) 'fuf))
+                (unless (and (listp buffer-invisibility-spec)
+                             (assoc 'fuf buffer-invisibility-spec))
+                  (add-to-invisibility-spec '(fuf . t))))
+              ;; Juice - actually create an annot
               (push (annot-recover-overlay ov-plist) annot-buffer-overlays)
               (setq last-valid-point (annot-get-beg ov-plist)))
              ;; Linear recovery in case some invalid annotation is found.
@@ -851,7 +898,7 @@ Only annotation files use this function internally."
                       (push (annot-recover-overlay ov-plist) annot-buffer-overlays)
                       (setq last-valid-point (annot-get-beg ov-plist))
                       (throw 'found t))))))))))
-      
+
       (setq annot-buffer-plist
             `(:md5 ,(plist-get annotations-info :md5)
                    :filename       ,(plist-get annotations-info :filename)
@@ -1030,6 +1077,44 @@ and create, for each annot text property, an annot overlay."
                                   (min (point-max) (1+ offset))
                                   '(annot-exists nil annot-positions nil))))))
   ad-return-value)
+
+
+;;; annot's fuf support
+
+(when annot-enable-fuf-support
+  (require 'fuf)
+  (defun annot-fuf-create-ellipsis-overlay (beg end)
+    "Create an overlay that represents \"...\" for text from `beg'
+  to `end'."
+    (let ((ov (make-overlay beg end nil t nil)))
+      (overlay-put ov 'evaporate t)
+      (overlay-put ov :prev (buffer-substring-no-properties
+                             (max (point-min) (- beg annot-subsequence-length)) beg))
+      (overlay-put ov :next (buffer-substring-no-properties
+                             end (min (point-max) (+ end annot-subsequence-length))))
+      (overlay-put ov :beg beg)
+      (overlay-put ov :end end)
+      (overlay-put ov :type 'ellipsis)
+      (overlay-put ov :modtime (float-time))
+      (overlay-put ov 'invisible 'fuf) ;; core
+      ;; This is merely a temporary solution. In particular, the following does
+      ;; not take into account its indirect buffer. (TODO)
+      (push ov annot-buffer-overlays)
+      (annot-save-annotations)
+      ov))
+  (setq fuf-create-ellipsis-overlay-function 'annot-fuf-create-ellipsis-overlay)
+
+  (defun annot-fuf-remove-ellipsis-overlay (beg end)
+    "Remove an overlay that represents \"...\" for text from `beg'
+  to `end'."
+    (dolist (ov (overlays-in beg end))
+      (when (eq (overlay-get ov 'invisible) 'fuf)
+        (setq annot-buffer-overlays (delq ov annot-buffer-overlays))
+        (delete-overlay ov)
+        (annot-save-annotations)))
+    (remove-overlays beg end 'invisible 'fuf))
+  (setq fuf-remove-ellipsis-overlay-function 'annot-fuf-remove-ellipsis-overlay))
+
 
 (provide 'annot)
 ;;; annot.el ends here
