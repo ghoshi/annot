@@ -37,14 +37,19 @@ under one of your load paths, and add the following line into your ~/.emacs,
 ### User Commands ###
 
 ```
-* `annot-edit/add'  - either edit the annotation at point, if there is,
-                      or else add a new annotation or highlight.
-* `annot-remove'    - remove the annotation/highlight at point.
+* `annot-edit/add'   - Add a new annotation or highlight if a region is
+                       specified.  Edit an annotation if there's one already.
+* `annot-remove'     - Remove the annotation/highlight at point.
+* `annot-add-image'  - Insert an image at point.
+* `annot-convert'    - Convert text within the active region into an
+                       annot text annotation
+* `annot-to-comment' - Convert a text annotation at point to a comment
+* `annot-goto-next'  - Go to the next annot overlay
+* `annot-goto-previous' - Go to the previous annot overlay
+
+;; Deprecated (use `annot-edit/add' instead)
 * `annot-add'       - add a new annotation/highlight at point.
 * `annot-edit'      - edit the annotation at point.
-* `annot-add-image' - insert an image at point.
-* `annot-convert'   - convert text within the active region into an
-                      annot text annotation
 ```
 
 ### Screenshot ###
