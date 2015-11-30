@@ -25,14 +25,26 @@ under one of your load paths, and add the following line into your ~/.emacs,
 
 > (require 'annot)
 
-### Commands: ###
+### Keybindings ###
 
 ```
-[C-x a]    -  add a new annotation/highlight or edit an existing annotation/highlight.
-              You can also use [C-x C-a]. (annot-edit/add)
-[C-x r]    -  remove annotation at point. (annot-remove)
-[C-x w]    -  insert an image at point. (annot-add-image)
-[C-x A]    -  convert the text within the currently active region into an annot text annotation. (annot-convert)
+[C-x C-a] - Add a new annotation
+            Highlight the current region if any (annot-edit/add)
+[C-x C-r] - Remove the annotation/highlight at point (annot-remove)
+[C-x C-i] - Insert a new image at point (annot-add-image)
+```
+
+### User Commands ###
+
+```
+* `annot-edit/add'  - either edit the annotation at point, if there is,
+                      or else add a new annotation or highlight.
+* `annot-remove'    - remove the annotation/highlight at point.
+* `annot-add'       - add a new annotation/highlight at point.
+* `annot-edit'      - edit the annotation at point.
+* `annot-add-image' - insert an image at point.
+* `annot-convert'   - convert text within the active region into an
+                      annot text annotation
 ```
 
 ### Screenshot ###
