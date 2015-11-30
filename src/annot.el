@@ -46,10 +46,10 @@
 ;; 
 ;; Keybindings:
 ;;
-;; * [C-x a]    -  add a new annotation/highlight or edit an existing annotation on point.
-;;                 You can also use [C-x C-a]. (annot-edit/add)
-;; * [C-x r]    -  remove annotation at point. (annot-remove)
-;; * [C-x w]    -  insert an image at point. (annot-add-image)
+;; * [C-x C-a] - Add a new annotation
+;;               Highlight the current region if any (annot-edit/add)
+;; * [C-x C-r] - Remove the annotation/highlight at point (annot-remove)
+;; * [C-x C-i] - Insert a new image at point (annot-add-image)
 ;;
 ;; User Commands:
 ;; 
@@ -59,8 +59,8 @@
 ;; * `annot-add'       - add a new annotation/highlight at point.
 ;; * `annot-edit'      - edit the annotation at point.
 ;; * `annot-add-image' - insert an image at point.
-
-;;; Todo:
+;; * `annot-convert'   - convert text within the active region into an
+;;                       annot text annotation
 
 ;;; Code:
 
@@ -320,7 +320,7 @@ If a region is specified, a highlight annotation will be added or edited."
 
 
 (defun annot-convert ()
-  "Convert the text within a currently active region into an annot text annotation."
+  "Convert text within the active region into an annot text annotation."
   (interactive)
   (when (and (region-active-p)
              (> (- (region-end) (region-beginning)) 0))
@@ -920,11 +920,13 @@ Only annotation files use this function internally."
 
 ;;;; Keybindings.
 
-(define-key ctl-x-map "a"    'annot-edit/add)
 (define-key ctl-x-map "\C-a" 'annot-edit/add)
-(define-key ctl-x-map "r"    'annot-remove)
-(define-key ctl-x-map "w"    'annot-add-image)
-(define-key ctl-x-map "A"    'annot-convert)
+(define-key ctl-x-map "\C-r" 'annot-remove)
+(define-key ctl-x-map "\C-i" 'annot-add-image)
+;; (define-key ctl-x-map "a" 'annot-edit/add)
+;; (define-key ctl-x-map "r" 'annot-remove)
+;; (define-key ctl-x-map "w" 'annot-add-image)
+;; (define-key ctl-x-map "A" 'annot-convert)
 
 
 ;;;; Hooks and Advices.
