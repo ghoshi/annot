@@ -63,8 +63,6 @@
 ;; * `annot-goto-next'  - Go to the next annot overlay
 ;; * `annot-goto-previous' - Go to the previous annot overlay
 
-
-
 ;;; Code:
 
 (defgroup annot nil
@@ -375,18 +373,21 @@ as a list if you want specific types of annotation to be
 captured."
   (interactive)
   (let (pt ov)
-    (catch 'finished
-      (while (< (point-min)
-                (setq pt (previous-overlay-change (point))))
-        (goto-char pt)
-        (setq ov (car (annot-overlays-in pt (1+ pt))))
-        (when (and ov
-                   (member (overlay-get ov :type)
-                           (or (and (listp annot-types) annot-types)
-                               annot-available-types)))
-          (throw 'finished t)))
-      (message "No previous annot found.")
-      nil)))
+    (when (catch 'finished
+            (save-excursion
+              (save-restriction
+                (while (< (point-min)
+                          (setq pt (previous-overlay-change (point))))
+                  (goto-char pt)
+                  (setq ov (car (annot-overlays-in pt (1+ pt))))
+                  (when (and ov
+                             (member (overlay-get ov :type)
+                                     (or (and (listp annot-types) annot-types)
+                                         annot-available-types)))
+                    (throw 'finished t)))
+                (message "No previous annot found.")
+                nil)))
+      (goto-char pt))))
 
 
 (defun annot-goto-next (&optional annot-types)
@@ -396,18 +397,21 @@ as a list if you want specific types of annotation to be
 captured."
   (interactive)
   (let (pt ov)
-    (catch 'finished
-      (while (< (setq pt (next-overlay-change (point)))
-                (point-max))
-        (goto-char pt)
-        (setq ov (car (annot-overlays-in pt (1+ pt))))
-        (when (and ov
-                   (member (overlay-get ov :type)
-                           (or (and (listp annot-types) annot-types)
-                               annot-available-types)))
-          (throw 'finished t)))
-      (message "No further annot found.")
-      nil)))
+    (when (catch 'finished
+            (save-excursion
+              (save-restriction
+                (while (< (setq pt (next-overlay-change (point)))
+                          (point-max))
+                  (goto-char pt)
+                  (setq ov (car (annot-overlays-in pt (1+ pt))))
+                  (when (and ov
+                             (member (overlay-get ov :type)
+                                     (or (and (listp annot-types) annot-types)
+                                         annot-available-types)))
+                    (throw 'finished t)))
+                (message "No further annot found.")
+                nil)))
+      (goto-char pt))))
 
 
 ;;;; Indirect buffer functions.
