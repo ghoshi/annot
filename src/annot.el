@@ -1,6 +1,6 @@
 ;;; annot.el --- a global annotator/highlighter for GNU Emacs
 
-;; Copyright (C) 2010-2015 tkykhs
+;; Copyright (C) 2010-2016 tkykhs
 
 ;; Author:     tkykhs
 ;; Maintainer: tkykhs
@@ -1090,8 +1090,8 @@ and create, for each annot text property, an annot overlay."
 
 ;;; annot's fuf support
 
-(when annot-enable-fuf-support
-  (require 'fuf)
+(when (and annot-enable-fuf-support
+           (featurep 'fuf))
   (defun annot-fuf-create-ellipsis-overlay (beg end)
     "Create an overlay that represents \"...\" for text from `beg'
   to `end'."
