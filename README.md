@@ -54,7 +54,7 @@ under one of your load paths, and add the following line into your ~/.emacs,
 
 ### Screenshot ###
 
-![http://annot.googlecode.com/files/annot_example3.png](http://annot.googlecode.com/files/annot_example3.png)
+![https://raw.githubusercontent.com/zefew/annot/master/media/annot_example_20160315.png](https://raw.githubusercontent.com/zefew/annot/master/media/annot_example_20160315.png)
 
 ### Change List ###
 
