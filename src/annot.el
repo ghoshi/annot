@@ -383,9 +383,10 @@ captured."
                   (when (and ov
                              (member (overlay-get ov :type)
                                      (or (and (listp annot-types) annot-types)
-                                         annot-available-types)))
+                                         annot-available-types))
+                             (not (annot-invisible-p pt)))
                     (throw 'finished t)))
-                (message "No previous annot found.")
+                (message "(No previous visible annot found)")
                 nil)))
       (goto-char pt))))
 
@@ -407,9 +408,10 @@ captured."
                   (when (and ov
                              (member (overlay-get ov :type)
                                      (or (and (listp annot-types) annot-types)
-                                         annot-available-types)))
+                                         annot-available-types))
+                             (not (annot-invisible-p pt)))
                     (throw 'finished t)))
-                (message "No further annot found.")
+                (message "(No further visible annot found)")
                 nil)))
       (goto-char pt))))
 
@@ -536,6 +538,20 @@ If `annot-md5-max-chars' is nil, no limit is imposed."
                     annot-available-types)
         (push ov L)))
     L))
+
+
+(defsubst annot-invisible-p (pos &optional object)
+  "Non-nil if char at `pos' is invisible."
+  (let ((invisible (get-char-property pos 'invisible object)))
+    (if (eq buffer-invisibility-spec t)
+        invisible
+      (catch :result
+        (dolist (prop (if (consp invisible)
+                          invisible
+                        (list invisible)))
+          (when (or (memq prop buffer-invisibility-spec)
+                    (assq prop buffer-invisibility-spec))
+            (throw :result t)))))))
 
 
 (defun annot-create-new (text/image/region)
